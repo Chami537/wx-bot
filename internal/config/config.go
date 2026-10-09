@@ -226,7 +226,11 @@ func expandString(s string) (string, error) {
 		if name == "" {
 			return "", fmt.Errorf("empty env var name")
 		}
-		s = os.Getenv(name)
+		val, ok := os.LookupEnv(name)
+		if !ok || val == "" {
+			return "", fmt.Errorf("environment variable %s is unset or empty", name)
+		}
+		s = val
 	}
 	return expandHome(s), nil
 }

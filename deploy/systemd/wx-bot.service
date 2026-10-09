@@ -9,6 +9,7 @@ ExecStart=%h/.local/bin/wx-bot run
 Restart=on-failure
 RestartSec=5
 Environment=HOME=%h
+EnvironmentFile=-%h/.config/wx-bot/env
 
 [Install]
 WantedBy=default.target

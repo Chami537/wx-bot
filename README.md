@@ -87,7 +87,8 @@ make cross
 ```
 
 - `name`：`[a-z0-9_-]{1,32}`，全局唯一。
-- 任意字符串字段可用 `env:VAR_NAME` 从环境变量读取。
+- 任意字符串字段可用 `env:VAR_NAME` 从环境变量读取；变量未设置或为空时加载失败（错误含字段名和变量名，不含变量值）。
+- 服务进程通过 `~/.config/wx-bot/env`（`KEY=value`，0600）注入变量：systemd 用 `EnvironmentFile=-%h/.config/wx-bot/env`，launchd 由 wrapper `set -a; . "$HOME/.config/wx-bot/env"` 后再 `exec wx-bot run`。
 - `allow_wxids` 为空时，默认只放行登录时扫码的 `ilink_user_id`。
 - `local_api.listen` 必须是 loopback，否则拒绝启动。
 - `webhook.secret` 若设置，会附加 `X-WxBot-Signature: sha256=<HMAC-SHA256(body)>` 和 `X-WxBot-Timestamp`。
@@ -144,7 +145,7 @@ wx-bot version
 
 ## 接到 Grok Bot
 
-把 binding 的 `webhook.url` 设成 Grok Bot routine 的 webhook 地址，`key` 填 routine 的 bearer token（或 `env:WXBOT_WEBHOOK_KEY`）。Agent 收到 JSON 后用本机 `wx-bot send` 或 `127.0.0.1:18790/v1/send` 回微信。Agent 输出请保持纯文本。
+把 binding 的 `webhook.url` 设成 Grok Bot routine 的 webhook 地址，`key` 填 routine 的发送密钥（或 `env:WXBOT_WEBHOOK_KEY`）。Grok Bot routine webhook 对发送方密钥所要求的 HTTP 头尚未在实网上核实；默认按 `Authorization: Bearer <key>` 发送，可用 `key_header` / `key_prefix` 调整。Agent 收到 JSON 后用本机 `wx-bot send` 或 `127.0.0.1:18790/v1/send` 回微信。Agent 输出请保持纯文本。
 
 ## 开机自启
 
@@ -156,7 +157,7 @@ systemctl --user enable --now wx-bot
 journalctl --user -u wx-bot -f
 ```
 
-单元文件：`deploy/systemd/wx-bot.service`。
+单元文件：`deploy/systemd/wx-bot.service`（含 `EnvironmentFile=-%h/.config/wx-bot/env`）。`install.sh` 会在缺失时写入 `~/.config/wx-bot/env` 模板（0600）。
 
 **launchd（macOS）**
 
@@ -165,7 +166,7 @@ journalctl --user -u wx-bot -f
 launchctl load ~/Library/LaunchAgents/com.lawrencewzen.wx-bot.plist
 ```
 
-plist：`deploy/launchd/com.lawrencewzen.wx-bot.plist`。`install.sh --service` 会把二进制路径换成安装位置，并把日志写到 `~/Library/Logs/wx-bot.log` / `wx-bot.err`（launchd 不展开 `~`，脚本会替换成 `$HOME/Library/Logs`）。
+plist：`deploy/launchd/com.lawrencewzen.wx-bot.plist`。`install.sh --service` 会把二进制路径换成安装位置，把日志写到 `~/Library/Logs/wx-bot.log` / `wx-bot.err`（launchd 不展开 `~`，脚本会替换成 `$HOME/Library/Logs`），并用 `/bin/sh -c` 在启动前 source `~/.config/wx-bot/env`。
 
 **无 systemd（tmux / nohup + cron）**
 
@@ -181,9 +182,9 @@ crontab -e
 
 - 本地 API 拒绝非 loopback。
 - 状态/媒体目录 0700，密钥文件 0600。
-- 密钥只允许 `env:` 或文件，日志里只出现脱敏 bot id 和 webhook host。
+- 密钥可以写在 `config.json` 字面量里，也可以用 `env:VAR` 或 `~/.config/wx-bot/env`；建议用环境变量，不要把密钥提交到 git。日志里只出现脱敏 bot id 和 webhook host。
 - 默认 allowlist = 扫码登录的微信用户。
-- 不要把 `config.json` 提交到 git；`webhook.key` / `secret` / `local_api.token` 建议用环境变量。
+- 不要把 `config.json` 或 `env` 提交到 git。
 
 ## 限制
 

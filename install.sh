@@ -63,9 +63,16 @@ BINDIR="${PREFIX}/bin"
 ROOT="$(cd "$(dirname "$0")" && pwd)"
 mkdir -p "$BINDIR"
 
+if [[ -z "${VERSION:-}" ]]; then
+  if command -v git >/dev/null 2>&1 && git -C "$ROOT" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+    VERSION="$(git -C "$ROOT" describe --tags --always --dirty 2>/dev/null || true)"
+  fi
+  VERSION="${VERSION:-dev}"
+fi
+
 if command -v go >/dev/null 2>&1; then
   echo "building from source with $(go version)"
-  (cd "$ROOT" && CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -X main.version=${VERSION:-dev}" -o "${BINDIR}/wx-bot" ./cmd/wx-bot)
+  (cd "$ROOT" && CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -X main.version=${VERSION}" -o "${BINDIR}/wx-bot" ./cmd/wx-bot)
 else
   DIST="${ROOT}/dist/wx-bot_${GOOS}_${GOARCH}"
   if [[ ! -f "$DIST" ]]; then
@@ -84,6 +91,11 @@ CFG="${CFGDIR}/config.json"
 if [[ ! -f "$CFG" ]]; then
   install -m 0600 "${ROOT}/examples/config.example.json" "$CFG"
   echo "wrote example config to $CFG (mode 0600); edit webhook.url before running."
+fi
+ENVFILE="${CFGDIR}/env"
+if [[ ! -f "$ENVFILE" ]]; then
+  install -m 0600 "${ROOT}/examples/env.example" "$ENVFILE"
+  echo "wrote env template to $ENVFILE (mode 0600); fill WXBOT_WEBHOOK_KEY (and friends)."
 fi
 
 if [[ "$SERVICE" -eq 1 ]]; then
@@ -121,7 +133,7 @@ cat <<EOF
 Installed ${BINDIR}/wx-bot
 
 Next steps:
-  1. Edit ${CFG}
+  1. Edit ${CFG} and ${ENVFILE} (env: vars must be set)
   2. ${BINDIR}/wx-bot login <binding>
   3. ${BINDIR}/wx-bot run
 

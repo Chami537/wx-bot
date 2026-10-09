@@ -6,8 +6,9 @@
   <string>com.lawrencewzen.wx-bot</string>
   <key>ProgramArguments</key>
   <array>
-    <string>/usr/local/bin/wx-bot</string>
-    <string>run</string>
+    <string>/bin/sh</string>
+    <string>-c</string>
+    <string>set -a; [ -f "$HOME/.config/wx-bot/env" ] &amp;&amp; . "$HOME/.config/wx-bot/env"; exec /usr/local/bin/wx-bot run</string>
   </array>
   <key>RunAtLoad</key>
   <true/>

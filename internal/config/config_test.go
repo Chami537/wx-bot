@@ -112,6 +112,43 @@ func TestUnknownFieldRejected(t *testing.T) {
 	}
 }
 
+func TestUnsetEnvVarError(t *testing.T) {
+	const name = "WXBOT_TEST_UNSET_ENV"
+	os.Unsetenv(name)
+	p := writeCfg(t, `{
+  "bindings": [{"name": "xiaox", "webhook": {"url": "https://x", "key": "env:WXBOT_TEST_UNSET_ENV"}}]
+}`)
+	_, err := Load(p)
+	if err == nil {
+		t.Fatal("expected error for unset env var")
+	}
+	msg := err.Error()
+	if !strings.Contains(msg, name) {
+		t.Fatalf("error should name the variable: %v", err)
+	}
+	if !strings.Contains(msg, "webhook.key") {
+		t.Fatalf("error should name the field: %v", err)
+	}
+}
+
+func TestEmptyEnvVarError(t *testing.T) {
+	t.Setenv("WXBOT_TEST_EMPTY_ENV", "")
+	p := writeCfg(t, `{
+  "bindings": [{"name": "xiaox", "webhook": {"url": "https://x", "secret": "env:WXBOT_TEST_EMPTY_ENV"}}]
+}`)
+	_, err := Load(p)
+	if err == nil {
+		t.Fatal("expected error for empty env var")
+	}
+	msg := err.Error()
+	if !strings.Contains(msg, "WXBOT_TEST_EMPTY_ENV") {
+		t.Fatalf("error should name the variable: %v", err)
+	}
+	if !strings.Contains(msg, "webhook.secret") {
+		t.Fatalf("error should name the field: %v", err)
+	}
+}
+
 func TestCheckLoopbackListen(t *testing.T) {
 	if err := CheckLoopbackListen("127.0.0.1:18790"); err != nil {
 		t.Fatal(err)
