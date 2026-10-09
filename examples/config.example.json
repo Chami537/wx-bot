@@ -1,0 +1,22 @@
+{
+  "state_dir": "~/.local/state/wx-bot",
+  "media_dir": "~/.local/state/wx-bot/media",
+  "local_api": {
+    "listen": "127.0.0.1:18790",
+    "token": ""
+  },
+  "bindings": [
+    {
+      "name": "xiaox",
+      "webhook": {
+        "url": "https://example.com/webhook/wx-bot",
+        "key": "env:WXBOT_WEBHOOK_KEY",
+        "key_header": "Authorization",
+        "key_prefix": "Bearer ",
+        "secret": "env:WXBOT_WEBHOOK_SECRET"
+      },
+      "allow_wxids": [],
+      "forward_unallowed": false
+    }
+  ]
+}
