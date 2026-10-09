@@ -37,24 +37,27 @@ type TextItem struct {
 
 // CDNMedia holds the location and decryption info for media stored on WeChat CDN.
 type CDNMedia struct {
-	EncryptQueryParam string `json:"encrypt_query_param"` // base64-encoded CDN query string
-	AESKey            string `json:"aes_key"`             // base64-encoded 16-byte AES-128-ECB key
-	EncryptType       int    `json:"encrypt_type"`        // 1 = AES-128-ECB
+	EncryptQueryParam string `json:"encrypt_query_param"` // download param from CDN x-encrypted-param
+	// AESKey is the CDN AES key as a JSON string.
+	// Outbound sendmessage: base64 of the ASCII hex key (32 chars), matching the official plugin.
+	// Inbound: raw 16 bytes, hex32, base64(raw), or base64(hex) — see ParseAESKey.
+	AESKey      string `json:"aes_key"`
+	EncryptType int    `json:"encrypt_type"` // 1 = AES-128-ECB
 	// FullURL is the complete download URL returned directly by the server.
 	// Use this when set; no client-side URL construction needed.
-	FullURL string `json:"full_url"`
+	FullURL string `json:"full_url,omitempty"`
 }
 
 // ImageItem carries an image.
 type ImageItem struct {
-	Media      CDNMedia `json:"media"`
-	ThumbMedia CDNMedia `json:"thumb_media"`
+	Media      CDNMedia  `json:"media"`
+	ThumbMedia *CDNMedia `json:"thumb_media,omitempty"`
 	// AESKey is the raw AES-128 key as a hex string (32 hex chars = 16 bytes).
 	// Preferred over Media.AESKey for inbound image decryption.
-	AESKey  string `json:"aeskey"`
-	URL     string `json:"url"`
-	MidSize int64  `json:"mid_size"`
-	HdSize  int64  `json:"hd_size"`
+	AESKey  string `json:"aeskey,omitempty"`
+	URL     string `json:"url,omitempty"`
+	MidSize int64  `json:"mid_size,omitempty"`
+	HdSize  int64  `json:"hd_size,omitempty"`
 }
 
 // VoiceItem carries a voice message. The plugin provides a text transcription.
@@ -69,17 +72,17 @@ type VoiceItem struct {
 type FileItem struct {
 	Media    CDNMedia `json:"media"`
 	FileName string   `json:"file_name"`
-	Md5      string   `json:"md5"`
+	Md5      string   `json:"md5,omitempty"`
 	Len      string   `json:"len"` // size in bytes (string in protocol)
 }
 
 // VideoItem carries a video.
 type VideoItem struct {
-	Media      CDNMedia `json:"media"`
-	ThumbMedia CDNMedia `json:"thumb_media"`
-	VideoSize  int64    `json:"video_size"`
-	PlayLength int64    `json:"play_length"` // ms
-	VideoMd5   string   `json:"video_md5"`
+	Media      CDNMedia  `json:"media"`
+	ThumbMedia *CDNMedia `json:"thumb_media,omitempty"`
+	VideoSize  int64     `json:"video_size,omitempty"`  // ciphertext size
+	PlayLength int64     `json:"play_length,omitempty"` // ms
+	VideoMd5   string    `json:"video_md5,omitempty"`
 }
 
 // SendMessageRequest is sent to the iLink bot sendmessage endpoint.
@@ -104,26 +107,39 @@ type BaseInfo struct {
 	ChannelVersion string `json:"channel_version"`
 }
 
+// Upload media types for getuploadurl (proto UploadMediaType).
+// NOTE: these are NOT the same numbers as the message ItemType* constants.
+const (
+	UploadMediaImage = 1
+	UploadMediaVideo = 2
+	UploadMediaFile  = 3
+	UploadMediaVoice = 4
+)
+
 // GetUploadURLRequest asks iLink for a CDN upload URL.
+// Field set mirrors @tencent-weixin/openclaw-weixin (src/api/api.ts getUploadUrl).
 type GetUploadURLRequest struct {
-	Filekey         string   `json:"filekey"`
-	MediaType       int      `json:"media_type"`
-	ToUserID        string   `json:"to_user_id"`
-	Rawsize         int64    `json:"rawsize"`
-	RawFileMD5      string   `json:"rawfilemd5"`
-	Filename        string   `json:"filename"`
-	EncryptType     int      `json:"encrypt_type"`
-	EncryptFileSize int64    `json:"encrypt_file_size"`
-	EncryptFileMD5  string   `json:"encrypt_file_md5"`
-	BaseInfo        BaseInfo `json:"base_info"`
+	Filekey       string   `json:"filekey"`    // random 16 bytes, hex
+	MediaType     int      `json:"media_type"` // UploadMedia* (1 image, 2 video, 3 file)
+	ToUserID      string   `json:"to_user_id"`
+	Rawsize       int64    `json:"rawsize"`    // plaintext size
+	RawFileMD5    string   `json:"rawfilemd5"` // plaintext md5, hex
+	Filesize      int64    `json:"filesize"`   // ciphertext size (AES-128-ECB + PKCS7)
+	ThumbRawsize  int64    `json:"thumb_rawsize,omitempty"`
+	ThumbRawMD5   string   `json:"thumb_rawfilemd5,omitempty"`
+	ThumbFilesize int64    `json:"thumb_filesize,omitempty"`
+	NoNeedThumb   bool     `json:"no_need_thumb"`
+	AESKey        string   `json:"aeskey"` // 16-byte key, hex
+	BaseInfo      BaseInfo `json:"base_info"`
 }
 
 // GetUploadURLResponse is returned by the getuploadurl endpoint.
 type GetUploadURLResponse struct {
-	Ret               int    `json:"ret"`
-	UploadURL         string `json:"upload_url"`
-	EncryptQueryParam string `json:"encrypt_query_param"`
-	AESKey            string `json:"aes_key"`
+	Ret              int    `json:"ret"`
+	ErrMsg           string `json:"errmsg"`
+	UploadParam      string `json:"upload_param"`       // CDN encrypted_query_param for upload
+	ThumbUploadParam string `json:"thumb_upload_param"` // empty when no_need_thumb
+	UploadFullURL    string `json:"upload_full_url"`    // complete upload URL; preferred when set
 }
 
 // GetUpdatesRequest is the body for the getupdates long-poll.
@@ -182,6 +198,9 @@ const (
 
 	ErrCodeExpired = -14 // iLink session expired
 )
+
+// DefaultCDNBase is the WeChat C2C CDN used for media upload/download.
+const DefaultCDNBase = "https://novac2c.cdn.weixin.qq.com/c2c"
 
 // DefaultAuthBase is the production iLink auth host.
 const DefaultAuthBase = "https://ilinkai.weixin.qq.com"
