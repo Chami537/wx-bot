@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img" aria-label="wx-bot">
+  <title>wx-bot</title>
+  <rect width="128" height="128" rx="28" fill="#07C160"/>
+  <!-- chat bubble -->
+  <path fill="#FFFFFF" d="M38 22h48a16 16 0 0 1 16 16v28a16 16 0 0 1-16 16H64L44 100V82H38a16 16 0 0 1-16-16V38a16 16 0 0 1 16-16z"/>
+  <!-- interlocking chain / bridge -->
+  <g fill="none" stroke="#07C160" stroke-width="5.5" stroke-linecap="round" stroke-linejoin="round">
+    <rect x="40.5" y="40" width="30" height="18" rx="9" transform="rotate(-28 55.5 49)"/>
+    <rect x="57.5" y="40" width="30" height="18" rx="9" transform="rotate(28 72.5 49)"/>
+  </g>
+</svg>
