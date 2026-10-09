@@ -105,8 +105,13 @@ if [[ "$SERVICE" -eq 1 ]]; then
       PLIST_DST="${HOME}/Library/LaunchAgents/com.lawrencewzen.wx-bot.plist"
       mkdir -p "${HOME}/Library/LaunchAgents"
     fi
-    sed "s|/usr/local/bin/wx-bot|${BINDIR}/wx-bot|g" "$PLIST_SRC" > "$PLIST_DST"
-    echo "installed $PLIST_DST"
+    LOGDIR="${HOME}/Library/Logs"
+    mkdir -p "$LOGDIR"
+    # launchd does not expand ~; write absolute, user-writable log paths.
+    sed -e "s|/usr/local/bin/wx-bot|${BINDIR}/wx-bot|g" \
+        -e "s|~/Library/Logs|${LOGDIR}|g" \
+        "$PLIST_SRC" > "$PLIST_DST"
+    echo "installed $PLIST_DST (logs: ${LOGDIR}/wx-bot.log)"
     echo "load with: launchctl load $PLIST_DST"
   fi
 fi

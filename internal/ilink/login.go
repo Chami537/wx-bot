@@ -148,6 +148,9 @@ func (l *LoginAPI) pollQRStatus(ctx context.Context, qrID, host string) (*Sessio
 			}
 			// Switch to new IDC host and continue polling.
 			host = r.RedirectHost
+			if !strings.HasPrefix(host, "http://") && !strings.HasPrefix(host, "https://") {
+				host = "https://" + host
+			}
 
 		default:
 			// "wait" or "scaned" — keep polling

@@ -1,10 +1,13 @@
 package ilink
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -78,6 +81,63 @@ func TestLoginRedirectThenConfirm(t *testing.T) {
 		t.Fatalf("session %+v", sess)
 	}
 	if sess.BaseURL != "https://ilink-session.example" {
+		t.Fatalf("base url %s", sess.BaseURL)
+	}
+}
+
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripFunc) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
+
+func jsonResp(req *http.Request, body string) *http.Response {
+	return &http.Response{
+		StatusCode: http.StatusOK,
+		Body:       io.NopCloser(bytes.NewBufferString(body)),
+		Header:     make(http.Header),
+		Request:    req,
+	}
+}
+
+func TestLoginBareRedirectHostGetsHTTPS(t *testing.T) {
+	var n atomic.Int32
+	var sawHTTPS atomic.Bool
+	rt := roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		switch req.URL.Path {
+		case qrCodePath:
+			return jsonResp(req, `{"ret":0,"qrcode":"qr-1","qrcode_img_content":"https://example.com/qr.png"}`), nil
+		case qrStatusPath:
+			i := n.Add(1)
+			if i == 1 {
+				return jsonResp(req, `{"ret":0,"status":"scaned_but_redirect","redirect_host":"sz.ilinkai.weixin.qq.com"}`), nil
+			}
+			if req.URL.Scheme != "https" || req.URL.Host != "sz.ilinkai.weixin.qq.com" {
+				t.Errorf("redirect poll URL = %s, want https://sz.ilinkai.weixin.qq.com/...", req.URL.String())
+			} else {
+				sawHTTPS.Store(true)
+			}
+			return jsonResp(req, `{"ret":0,"status":"confirmed","bot_token":"tok","ilink_bot_id":"bot@im.bot","baseurl":"https://ilink-session.example","ilink_user_id":"wxid_owner"}`), nil
+		default:
+			t.Errorf("unexpected path %s", req.URL.Path)
+			return jsonResp(req, `{"ret":1}`), nil
+		}
+	})
+	api := &LoginAPI{
+		AuthBase:   "https://ilinkai.weixin.qq.com",
+		HTTPClient: &http.Client{Transport: rt},
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	sess, err := api.Login(ctx, nil)
+	if err != nil {
+		t.Fatalf("login: %v", err)
+	}
+	if !sawHTTPS.Load() {
+		t.Fatal("bare redirect_host was not polled over https")
+	}
+	if sess == nil || sess.BotToken != "tok" {
+		t.Fatalf("session %+v", sess)
+	}
+	if !strings.HasPrefix(sess.BaseURL, "https://") {
 		t.Fatalf("base url %s", sess.BaseURL)
 	}
 }

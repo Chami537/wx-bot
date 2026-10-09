@@ -14,8 +14,8 @@
   <key>KeepAlive</key>
   <true/>
   <key>StandardOutPath</key>
-  <string>/usr/local/var/log/wx-bot.log</string>
+  <string>~/Library/Logs/wx-bot.log</string>
   <key>StandardErrorPath</key>
-  <string>/usr/local/var/log/wx-bot.err</string>
+  <string>~/Library/Logs/wx-bot.err</string>
 </dict>
 </plist>

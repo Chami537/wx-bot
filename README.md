@@ -165,7 +165,7 @@ journalctl --user -u wx-bot -f
 launchctl load ~/Library/LaunchAgents/com.lawrencewzen.wx-bot.plist
 ```
 
-plist：`deploy/launchd/com.lawrencewzen.wx-bot.plist`。
+plist：`deploy/launchd/com.lawrencewzen.wx-bot.plist`。`install.sh --service` 会把二进制路径换成安装位置，并把日志写到 `~/Library/Logs/wx-bot.log` / `wx-bot.err`（launchd 不展开 `~`，脚本会替换成 `$HOME/Library/Logs`）。
 
 **无 systemd（tmux / nohup + cron）**
 

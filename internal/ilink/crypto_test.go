@@ -5,6 +5,7 @@ import (
 	"crypto/aes"
 	"encoding/base64"
 	"encoding/hex"
+	"strings"
 	"testing"
 )
 
@@ -81,8 +82,12 @@ func TestPKCS7EdgeCases(t *testing.T) {
 	bad := bytes.Repeat([]byte{4}, 16)
 	bad[15] = 4
 	bad[14] = 3
-	if _, err := pkcs7Unpad(bad); err == nil {
+	_, padErr := pkcs7Unpad(bad)
+	if padErr == nil {
 		t.Fatal("expected error on inconsistent padding")
+	}
+	if !strings.Contains(padErr.Error(), "position 14") {
+		t.Fatalf("want position 14 in %v", padErr)
 	}
 }
 
@@ -94,11 +99,8 @@ func TestParseAESKeyAllForms(t *testing.T) {
 		"base64_raw16": base64.StdEncoding.EncodeToString(key),
 		"base64_hex32": base64.StdEncoding.EncodeToString([]byte(hex.EncodeToString(key))),
 		"raw_base64":   base64.RawStdEncoding.EncodeToString(key),
-		"hex32_upper":  hex.EncodeToString(key),
+		"hex32_upper":  toUpperHex(key),
 	}
-	// uppercase hex
-	forms["hex32_upper"] = "30313233343536373839616263646566" // that's 0-9a-f of ASCII... wait
-	forms["hex32_upper"] = toUpperHex(key)
 
 	for name, s := range forms {
 		got, err := ParseAESKey(s)
@@ -112,7 +114,7 @@ func TestParseAESKeyAllForms(t *testing.T) {
 }
 
 func toUpperHex(b []byte) string {
-	return hex.EncodeToString(b) // hex.EncodeToString is lowercase
+	return strings.ToUpper(hex.EncodeToString(b))
 }
 
 func TestParseAESKeyUpperHex(t *testing.T) {

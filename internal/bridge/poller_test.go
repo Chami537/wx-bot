@@ -73,6 +73,14 @@ func (s *ilinkScript) handler(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+func (s *ilinkScript) getHeaders() []http.Header {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	out := make([]http.Header, len(s.headers))
+	copy(out, s.headers)
+	return out
+}
+
 func saveSession(t *testing.T, dir, binding, token, botID, userID, base string) *state.Store {
 	t.Helper()
 	st, err := state.Open(dir, binding)
@@ -254,10 +262,11 @@ func TestPollerWebhookAuthHMACMediaAllowlistCursor(t *testing.T) {
 		t.Fatalf("stranger token persisted: %v", toks)
 	}
 
-	if len(script.headers) == 0 {
+	hdrs := script.getHeaders()
+	if len(hdrs) == 0 {
 		t.Fatal("no getupdates")
 	}
-	h0 := script.headers[0]
+	h0 := hdrs[0]
 	if h0.Get("iLink-App-Id") != "bot" || h0.Get("iLink-App-ClientVersion") != "131335" {
 		t.Fatalf("app headers %v", h0)
 	}
@@ -340,5 +349,145 @@ func TestPollerErrCodeExpiredStopsOnlyThatBinding(t *testing.T) {
 	case <-bDone:
 	case <-time.After(2 * time.Second):
 		t.Fatal("binding b poller did not stop")
+	}
+}
+
+func TestPollerTwoImagesDistinctFiles(t *testing.T) {
+	key := []byte("0123456789abcdef")
+	plainA := []byte("jpeg-bytes-A----")
+	plainB := []byte("jpeg-bytes-B----")
+	ctA, err := ilink.EncryptAES128ECB(plainA, key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctB, err := ilink.EncryptAES128ECB(plainB, key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cdn := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/a.jpg":
+			_, _ = w.Write(ctA)
+		case "/b.jpg":
+			_, _ = w.Write(ctB)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	closeServer(t, cdn)
+
+	script := &ilinkScript{resps: []ilink.GetUpdatesResponse{{
+		GetUpdatesBuf: "c1",
+		Msgs: []ilink.IncomingMessage{{
+			MessageID:    2002,
+			FromUserID:   "wxid_owner",
+			ToUserID:     "bot@im.bot",
+			CreateTimeMs: 1760000000000,
+			ContextToken: "ctx",
+			ItemList: []ilink.MessageItem{
+				{Type: ilink.ItemTypeImage, ImageItem: &ilink.ImageItem{
+					AESKey: hex.EncodeToString(key),
+					Media:  ilink.CDNMedia{FullURL: cdn.URL + "/a.jpg", EncryptType: 1},
+				}},
+				{Type: ilink.ItemTypeImage, ImageItem: &ilink.ImageItem{
+					AESKey: hex.EncodeToString(key),
+					Media:  ilink.CDNMedia{FullURL: cdn.URL + "/b.jpg", EncryptType: 1},
+				}},
+			},
+		}},
+	}}}
+	ilinkSrv := httptest.NewServer(http.HandlerFunc(script.handler))
+	closeServer(t, ilinkSrv)
+
+	hits := make(chan hookHit, 2)
+	hook := startWebhook(t, hits)
+	st := saveSession(t, t.TempDir(), "xiaox", "tok", "bot@im.bot", "wxid_owner", ilinkSrv.URL)
+	p := &Poller{
+		Name:           "xiaox",
+		Client:         ilink.NewClient(&ilink.Session{BotToken: "tok", BaseURL: ilinkSrv.URL, BotID: "bot@im.bot", UserID: "wxid_owner"}),
+		Store:          st,
+		Allow:          NewAllowlist(nil, "wxid_owner"),
+		Webhook:        &Dispatcher{Webhook: config.Webhook{URL: hook.URL}, Attempts: 1},
+		MediaDir:       t.TempDir(),
+		DefaultTimeout: 200 * time.Millisecond,
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go p.Run(ctx)
+
+	var hit hookHit
+	select {
+	case hit = <-hits:
+	case <-time.After(3 * time.Second):
+		t.Fatal("timeout waiting for webhook")
+	}
+	cancel()
+
+	var payload Payload
+	if err := json.Unmarshal(hit.Body, &payload); err != nil {
+		t.Fatal(err)
+	}
+	if len(payload.Media) != 2 {
+		t.Fatalf("media count %d: %+v", len(payload.Media), payload.Media)
+	}
+	if payload.Media[0].Path == payload.Media[1].Path {
+		t.Fatalf("paths collided: %s", payload.Media[0].Path)
+	}
+	a, err := os.ReadFile(payload.Media[0].Path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, err := os.ReadFile(payload.Media[1].Path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(a) != string(plainA) || string(b) != string(plainB) {
+		t.Fatalf("contents %q %q", a, b)
+	}
+}
+
+func TestPollerHasContextTokenFromCache(t *testing.T) {
+	script := &ilinkScript{resps: []ilink.GetUpdatesResponse{{
+		GetUpdatesBuf: "c2",
+		Msgs: []ilink.IncomingMessage{{
+			MessageID:    9,
+			FromUserID:   "wxid_owner",
+			ToUserID:     "bot@im.bot",
+			CreateTimeMs: 1760000000000,
+			ItemList:     []ilink.MessageItem{{Type: ilink.ItemTypeText, TextItem: &ilink.TextItem{Text: "hi"}}},
+		}},
+	}}}
+	ilinkSrv := httptest.NewServer(http.HandlerFunc(script.handler))
+	closeServer(t, ilinkSrv)
+	hits := make(chan hookHit, 1)
+	hook := startWebhook(t, hits)
+	st := saveSession(t, t.TempDir(), "xiaox", "tok", "bot@im.bot", "wxid_owner", ilinkSrv.URL)
+	client := ilink.NewClient(&ilink.Session{BotToken: "tok", BaseURL: ilinkSrv.URL, BotID: "bot@im.bot", UserID: "wxid_owner"})
+	client.SetToken("wxid_owner", "cached-ctx")
+	p := &Poller{
+		Name:           "xiaox",
+		Client:         client,
+		Store:          st,
+		Allow:          NewAllowlist(nil, "wxid_owner"),
+		Webhook:        &Dispatcher{Webhook: config.Webhook{URL: hook.URL}, Attempts: 1},
+		MediaDir:       t.TempDir(),
+		DefaultTimeout: 200 * time.Millisecond,
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go p.Run(ctx)
+	var hit hookHit
+	select {
+	case hit = <-hits:
+	case <-time.After(3 * time.Second):
+		t.Fatal("timeout")
+	}
+	cancel()
+	var payload Payload
+	if err := json.Unmarshal(hit.Body, &payload); err != nil {
+		t.Fatal(err)
+	}
+	if !payload.HasContextToken {
+		t.Fatal("HasContextToken should be true when a cached token exists")
 	}
 }

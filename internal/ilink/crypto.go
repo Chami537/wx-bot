@@ -63,7 +63,7 @@ func pkcs7Unpad(data []byte) ([]byte, error) {
 	}
 	for i := len(data) - pad; i < len(data); i++ {
 		if data[i] != byte(pad) {
-			return nil, fmt.Errorf("invalid padding byte at position %d", pad)
+			return nil, fmt.Errorf("invalid padding byte at position %d", i)
 		}
 	}
 	return data[:len(data)-pad], nil

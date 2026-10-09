@@ -335,7 +335,7 @@ func (p *Poller) buildPayload(ctx context.Context, msg ilink.IncomingMessage) (P
 		VoiceText:       voiceText,
 		Media:           media,
 		MediaErrors:     mediaErrs,
-		HasContextToken: msg.ContextToken != "",
+		HasContextToken: msg.ContextToken != "" || p.Client.ContextToken(msg.FromUserID) != "",
 		ReplyHint:       fmt.Sprintf("wx-bot send --binding %s --to %s --text '...'", p.Name, msg.FromUserID),
 	}, nil
 }
@@ -343,8 +343,9 @@ func (p *Poller) buildPayload(ctx context.Context, msg ilink.IncomingMessage) (P
 func (p *Poller) saveMedia(media ilink.CDNMedia, keyOverride []byte, msgid, filename string, t time.Time, itemType, idx int) (MediaRef, error) {
 	name := defaultMediaName(itemType, filename)
 	if idx > 0 {
-		// keep PLAN path msgid_sanitized; uniqueness via filename when possible.
-		_ = idx
+		ext := filepath.Ext(name)
+		base := strings.TrimSuffix(name, ext)
+		name = fmt.Sprintf("%s_%d%s", base, idx, ext)
 	}
 	dest := mediaDest(p.MediaDir, p.Name, msgid, name, t)
 	if err := p.Client.DownloadMedia(media, keyOverride, dest); err != nil {

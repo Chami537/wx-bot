@@ -341,6 +341,9 @@ func (c *Client) post(ctx context.Context, path string, body, out any) error {
 		if probe.ErrCode == ErrCodeExpired || probe.Ret == ErrCodeExpired {
 			return fmt.Errorf("%s: %w", path, ErrExpired)
 		}
+		if out == nil && probe.Ret != 0 {
+			return fmt.Errorf("%s: ret=%d", path, probe.Ret)
+		}
 	}
 
 	if out != nil && len(raw) > 0 {
