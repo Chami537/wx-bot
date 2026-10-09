@@ -1,5 +1,8 @@
 <p align="center">
-  <img src="docs/assets/logo.svg" width="96" height="96" alt="wx-bot">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/assets/logo-dark.svg">
+    <img src="docs/assets/logo-light.svg" width="96" height="96" alt="wx-bot">
+  </picture>
 </p>
 
 <h1 align="center">wx-bot</h1>
@@ -9,11 +12,11 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/Go-1.24-00ADD8?style=flat-square&logo=go&logoColor=white" alt="Go 1.24">
-  <img src="https://img.shields.io/badge/platform-Linux%20%7C%20macOS-111827?style=flat-square" alt="Linux | macOS">
-  <img src="https://img.shields.io/badge/Windows-no-6B7280?style=flat-square" alt="no Windows">
-  <img src="https://img.shields.io/badge/network-outbound%20only-07C160?style=flat-square" alt="outbound only">
-  <img src="https://img.shields.io/badge/WeChat-ClawBot%20%2F%20iLink-07C160?style=flat-square" alt="WeChat ClawBot / iLink">
+  <img src="https://img.shields.io/badge/Go-1.24-111111?style=flat-square&logo=go&logoColor=white" alt="Go 1.24">
+  <img src="https://img.shields.io/badge/platform-Linux%20%7C%20macOS-111111?style=flat-square" alt="Linux | macOS">
+  <img src="https://img.shields.io/badge/Windows-no-111111?style=flat-square" alt="no Windows">
+  <img src="https://img.shields.io/badge/network-outbound%20only-111111?style=flat-square" alt="outbound only">
+  <img src="https://img.shields.io/badge/WeChat-ClawBot%20%2F%20iLink-111111?style=flat-square" alt="WeChat ClawBot / iLink">
 </p>
 
 <p align="center">
