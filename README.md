@@ -27,6 +27,10 @@
 
 ---
 
+> [!IMPORTANT]
+> **🤖 Agent 请先读 [`AGENTS.md`](https://github.com/lawrencewzen/wx-bot/blob/main/AGENTS.md)，按里面的步骤安装。**
+> 最重要的一条：创建 routine 后，**必须在聊天回复里直接发出「Webhook URL」和「Webhook key」两个可点击的字段链接**。用户在侧栏点不开 routine 详情，不要让用户自己去找。
+
 ## 功能
 
 - **双向收发**：收文本、图片、语音、文件、视频；回发文本、图片、文件、视频。语音优先附带微信转写文本。
@@ -48,10 +52,13 @@
 
 ### 交给 Grok Bot（推荐）
 
-1. 把本仓库地址发给你的 Grok Bot，让它安装 wx-bot。
-2. Grok Bot 用 webhook 触发器创建一个接收微信消息的 routine，创建后在聊天里直接发给用户两个可点击的字段链接：「Webhook URL」和「Webhook key」（就是 routine 面板里这两个字段的链接，不要只让用户去侧栏找）。用户把 URL 贴回聊天，key 填进 Bot 弹出的加密输入框（环境变量 `WXBOT_WEBHOOK_KEY`）。Bot 随后自己写好 wx-bot 配置。
-3. 按提示用微信扫码登录。
-4. 用你的微信给 ClawBot 发一条消息，之后就能对话。
+把下面这句话发给你的 Grok Bot：
+
+```
+帮我用 wx-bot 把微信接入你：https://github.com/lawrencewzen/wx-bot
+```
+
+它会按 [`AGENTS.md`](AGENTS.md) 装好，中间只需要你做三件事：点它发来的 Webhook URL 链接复制贴回聊天、点 Webhook key 链接复制填进加密输入框、用微信扫码。
 
 ### 手动安装
 
