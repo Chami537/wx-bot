@@ -49,7 +49,7 @@
 ### 交给 Grok Bot（推荐）
 
 1. 把本仓库地址发给你的 Grok Bot，让它安装 wx-bot。
-2. Grok Bot 会创建接收微信消息的 routine，并给出两个链接：**Webhook URL** 复制后贴在聊天里，**Webhook key** 填进它弹出的加密输入框。它会自己写好 wx-bot 配置。
+2. Grok Bot 用 webhook 触发器创建一个接收微信消息的 routine，创建后在聊天里直接发给用户两个可点击的字段链接：「Webhook URL」和「Webhook key」（就是 routine 面板里这两个字段的链接，不要只让用户去侧栏找）。用户把 URL 贴回聊天，key 填进 Bot 弹出的加密输入框（环境变量 `WXBOT_WEBHOOK_KEY`）。Bot 随后自己写好 wx-bot 配置。
 3. 按提示用微信扫码登录。
 4. 用你的微信给 ClawBot 发一条消息，之后就能对话。
 
