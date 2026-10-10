@@ -34,12 +34,12 @@
 
 平台：Linux / macOS（amd64、arm64），不支持 Windows。
 
-```mermaid
-flowchart LR
-  WeChat["微信"] -->|"iLink 长轮询"| WxBot["wx-bot"]
-  WxBot -->|"POST JSON"| Agent["Agent / webhook"]
-  Agent -->|"wx-bot send / 本地 API"| WxBot
-  WxBot -->|"iLink sendmessage"| WeChat
+```
++--------+   iLink getupdates    +--------+   POST JSON (webhook)   +---------+
+|        | --------------------> |        | ----------------------> |         |
+| WeChat |                       | wx-bot |                         |  Agent  |
+|        | <-------------------- |        | <---------------------- |         |
++--------+   iLink sendmessage   +--------+   wx-bot send / API     +---------+
 ```
 
 ## 快速开始
