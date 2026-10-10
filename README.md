@@ -8,7 +8,7 @@
 <h1 align="center">wx-bot</h1>
 
 <p align="center">
-  <strong>把个人微信接到你自己的 Agent webhook。</strong>
+  <strong>把微信接入到 Personal Agent（Grok、Muse 等）。</strong>
 </p>
 
 <p align="center">
@@ -111,6 +111,8 @@ wx-bot run                # 启动
 `media.type` 为 `image` / `voice` / `file` / `video`，`path` 是本机绝对路径。超时 15s，5xx 与网络错误最多重试 3 次。
 
 **接 Grok Bot**：`webhook.url` 填 routine 的 webhook 地址，`key` 填 routine 的发送密钥。
+
+**接 Muse**：后续支持。
 
 ## 回微信
 
