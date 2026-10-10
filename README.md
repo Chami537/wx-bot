@@ -22,31 +22,35 @@
 
 <p align="center">
   微信消息经腾讯官方 <a href="https://ilinkai.weixin.qq.com">ClawBot / iLink</a> 进入本机 <code>wx-bot</code>，
-  转成 JSON <code>POST</code> 到你的 Agent（例如 Grok Bot routine）；Agent 再用 <code>wx-bot send</code> 发回微信。
+  落盘后推送给你的 Agent（webhook）或由 Agent 拉取（pull）；Agent 再用 <code>wx-bot send</code> 发回微信。
 </p>
 
 ---
 
 > [!IMPORTANT]
-> **🤖 Agent 请先读 [`AGENTS.md`](https://github.com/lawrencewzen/wx-bot/blob/main/AGENTS.md)，按里面的步骤安装。**
-> 最重要的一条：创建 routine 后，**必须在聊天回复里直接发出「Webhook URL」和「Webhook key」两个可点击的字段链接**。用户在侧栏点不开 routine 详情，不要让用户自己去找。
+> **🤖 Agent 请先读 [`AGENTS.md`](https://github.com/lawrencewzen/wx-bot/blob/main/AGENTS.md)，找到你对应的一节（Grok Bot / Muse / Pi Durable），按里面的步骤安装。**
+> Grok Bot 最重要的一条：创建 routine 后，**必须在聊天回复里直接发出「Webhook URL」和「Webhook key」两个可点击的字段链接**。用户在侧栏点不开 routine 详情，不要让用户自己去找。
 
 ## 功能
 
 - **双向收发**：收文本、图片、语音、文件、视频；回发文本、图片、文件、视频。语音优先附带微信转写文本。
-- **只出站**：走 iLink 长轮询，本地发送 API 只监听 loopback，不对外开端口。
+- **不丢消息**：每条消息先写入本地 SQLite 收件箱，再推进 iLink 游标；投递失败自动退避重投，重启后继续。
+- **两种投递**：`webhook` 由 wx-bot 推送给 Agent；`pull` 由 Agent 自己来取（适合 Muse 这类只能轮询的 Agent）。
+- **只出站**：走 iLink 长轮询，本地 API 只监听 loopback，不对外开端口。
 - **默认白名单**：只放行扫码登录的微信号；其他人的消息不转发、不回复。
-- **多绑定**：一个微信号对应一个 webhook，会话过期只停该绑定。
+- **多绑定**：一个微信号对应一个 Agent，会话过期只停该绑定。
 
 平台：Linux / macOS（amd64、arm64），不支持 Windows。
 
 ```
-+--------+   iLink getupdates    +--------+   POST JSON (webhook)   +---------+
-|        | --------------------> |        | ----------------------> |         |
-| WeChat |                       | wx-bot |                         |  Agent  |
-|        | <-------------------- |        | <---------------------- |         |
-+--------+   iLink sendmessage   +--------+   wx-bot send / API     +---------+
++--------+  iLink getupdates   +-------------------+  webhook (push)     +---------+
+|        | ------------------> | wx-bot            | ------------------> |         |
+| WeChat |                     |   inbox (SQLite)  | <-- inbox (pull) -- |  Agent  |
+|        | <------------------ |                   | <------------------ |         |
++--------+  iLink sendmessage  +-------------------+  wx-bot send / API  +---------+
 ```
+
+对接标准见 [`docs/protocol.md`](docs/protocol.md)：入站事件格式、两种投递方式、送达语义、回复接口与状态码。
 
 ## 快速开始
 
@@ -60,9 +64,17 @@
 
 它会按 [`AGENTS.md`](AGENTS.md) 装好，中间只需要你做三件事：点它发来的 Webhook URL 链接复制贴回聊天、点 Webhook key 链接复制填进加密输入框、用微信扫码。
 
+### 交给 Muse
+
+把同一句话发给 Muse。它会在自己的运行环境里装好 wx-bot（pull 模式），把登录二维码以图片发给你；你扫码后，它用一个每隔几秒检测的 hook 接收微信消息。
+
+### 接入 Pi Durable
+
+用官方 Docker 镜像 `ghcr.io/lawrencewzen/wx-bot`，见 [`docs/integrations/pi-durable.md`](docs/integrations/pi-durable.md)。
+
 ### 手动安装
 
-需要 Go 1.24+。
+从 [Releases](https://github.com/lawrencewzen/wx-bot/releases) 下载对应平台的二进制，或用源码安装（需要 Go 1.24+）：
 
 ```bash
 git clone https://github.com/lawrencewzen/wx-bot
@@ -70,7 +82,7 @@ cd wx-bot
 ./install.sh              # 装到 ~/.local/bin；加 --service 同时装 systemd / launchd 自启
 ```
 
-编辑 `~/.config/wx-bot/config.json`，把 `webhook.url` 改成你的 Agent 地址；密钥写进 `~/.config/wx-bot/env`，配置里用 `env:VAR` 引用。
+编辑 `~/.config/wx-bot/config.json`：webhook 模式把 `webhook.url` 改成你的 Agent 地址，密钥写进 `~/.config/wx-bot/env`，配置里用 `env:VAR` 引用；pull 模式见 [`examples/config.pull.example.json`](examples/config.pull.example.json)。
 
 ```bash
 wx-bot login xiaox        # 终端出二维码，微信扫码
@@ -87,6 +99,7 @@ wx-bot run                # 启动
   "bindings": [
     {
       "name": "xiaox",
+      "delivery": "webhook",
       "webhook": {
         "url": "https://example.com/webhook/wx-bot",
         "key": "env:WXBOT_WEBHOOK_KEY",
@@ -102,17 +115,22 @@ wx-bot run                # 启动
 | --- | --- |
 | `local_api.listen` | 本地 API 地址，必须是 loopback。 |
 | `local_api.token` | 非空时 `/v1/*` 需 `Authorization: Bearer <token>`。 |
+| `delivery` | `webhook`（默认）或 `pull`。pull 模式不需要 `webhook`。 |
 | `webhook.key` | 默认以 `Authorization: Bearer <key>` 发送，可用 `key_header` / `key_prefix` 调整。 |
 | `webhook.secret` | 非空时附加 `X-WxBot-Signature: sha256=<HMAC>` 与 `X-WxBot-Timestamp`。 |
 | `allow_wxids` | 为空时只放行扫码登录的微信号。 |
 | `forward_unallowed` | `true` 时非白名单消息也转发，但不回复。 |
 
-完整示例：[`examples/config.example.json`](examples/config.example.json)。
+完整示例：[`examples/config.example.json`](examples/config.example.json)（webhook）、[`examples/config.pull.example.json`](examples/config.pull.example.json)（pull）。
 
-## Webhook 载荷
+收件箱在 `state_dir/inbox.db`。已送达的消息保留 7 天；7 天内一直未送达的消息会被放弃。
+
+## 入站事件
 
 ```json
 {
+  "schema": "wxbot.event.v1",
+  "event_id": "xiaox:1001",
   "binding": "xiaox",
   "message_id": "1001",
   "from_wxid": "wxid_xxx",
@@ -124,11 +142,19 @@ wx-bot run                # 启动
 }
 ```
 
-`media.type` 为 `image` / `voice` / `file` / `video`，`path` 是本机绝对路径。超时 15s，5xx 与网络错误最多重试 3 次。
+`media.type` 为 `image` / `voice` / `file` / `video`，`path` 是本机绝对路径。同一事件可能送达多次，Agent 按 `event_id` 去重。
 
-**接 Grok Bot**：`webhook.url` 填 routine 的 webhook 地址，`key` 填 routine 的发送密钥。
+**webhook**：POST 到 `webhook.url`，返回 2xx 即送达；超时 15s。5xx、超时、网络错误退避重投（最长 5 分钟一次）；400、413、422 放弃该条。
 
-**接 Muse**：后续支持。
+**pull**：
+
+```bash
+wx-bot inbox count                    # 可领取的消息数（不领取）
+wx-bot inbox pull --lease 5m          # 领取，输出 {"events": [...]}
+wx-bot inbox ack <event_id>...        # 处理完后确认；未确认的在租约到期后可再次领取
+```
+
+`wx-bot run` 期间也可用 `GET /v1/events`、`POST /v1/events/ack`，详见 [`docs/protocol.md`](docs/protocol.md)。
 
 ## 回微信
 
@@ -156,6 +182,10 @@ curl -X POST http://127.0.0.1:18790/v1/send \
 **`send` 报 `no context_token`？** 该用户还没给 bot 发过消息，先发一条再回。
 
 **二维码过期？** 自动刷新最多 3 次，仍失败就重跑 `login`。
+
+**要把二维码发给别人扫？** `wx-bot login <binding> --qr-png ./qr.png` 会同时写出 PNG 图片。
+
+**消息没送到 Agent？** `wx-bot status` 看 `inbox: N pending, M dead`：pending 是还在重投的，dead 是被 Agent 拒绝（400/413/422）或超过 7 天放弃的。日志里有每次失败的原因。
 
 ## 开发
 

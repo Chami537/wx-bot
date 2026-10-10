@@ -4,6 +4,7 @@ package main
 
 import (
 	"context"
+	"flag"
 	"fmt"
 	"os"
 	"os/signal"
@@ -13,14 +14,30 @@ import (
 	"github.com/lawrencewzen/wx-bot/internal/ilink"
 	"github.com/lawrencewzen/wx-bot/internal/state"
 	"github.com/mdp/qrterminal/v3"
+	"rsc.io/qr"
 )
 
 func cmdLogin(configPath string, args []string) int {
-	if len(args) != 1 {
-		fmt.Fprintf(os.Stderr, "usage: wx-bot login <binding>\n")
+	fs := flag.NewFlagSet("login", flag.ContinueOnError)
+	fs.SetOutput(os.Stderr)
+	qrPNG := fs.String("qr-png", "", "also write the QR code as a PNG to this path (for agents that send it as an image)")
+	fs.Usage = func() {
+		fmt.Fprintf(os.Stderr, "usage: wx-bot login [--qr-png PATH] <binding>\n")
+		fs.PrintDefaults()
+	}
+	// Accept flags before or after the binding name.
+	if err := fs.Parse(args); err != nil {
 		return 2
 	}
-	name := args[0]
+	if fs.NArg() < 1 {
+		fs.Usage()
+		return 2
+	}
+	name := fs.Arg(0)
+	if err := fs.Parse(fs.Args()[1:]); err != nil || fs.NArg() != 0 {
+		fs.Usage()
+		return 2
+	}
 	cfg, err := loadConfig(configPath)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "wx-bot: %v\n", err)
@@ -54,6 +71,13 @@ func cmdLogin(configPath string, args []string) int {
 				WithSixel:      false,
 			})
 			fmt.Fprintln(os.Stdout, imgURL)
+			if *qrPNG != "" {
+				if err := writeQRPNG(*qrPNG, imgURL); err != nil {
+					fmt.Fprintf(os.Stderr, "wx-bot login: write qr png: %v\n", err)
+				} else {
+					fmt.Fprintf(os.Stdout, "QR PNG: %s\n", *qrPNG)
+				}
+			}
 		}
 	})
 	if err != nil {
@@ -82,4 +106,14 @@ func cmdLogin(configPath string, args []string) int {
 	}
 	fmt.Fprintf(os.Stdout, "login ok\nbinding: %s\nilink_user_id: %s\nallowlist: %s\n", name, sess.UserID, allow)
 	return 0
+}
+
+// writeQRPNG renders content as a QR PNG, replacing path atomically.
+func writeQRPNG(path, content string) error {
+	code, err := qr.Encode(content, qr.M)
+	if err != nil {
+		return err
+	}
+	code.Scale = 8
+	return state.WriteAtomic(path, code.PNG())
 }

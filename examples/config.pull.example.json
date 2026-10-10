@@ -1,0 +1,15 @@
+{
+  "state_dir": "~/.local/state/wx-bot",
+  "media_dir": "~/.local/state/wx-bot/media",
+  "local_api": {
+    "listen": "127.0.0.1:18790",
+    "token": ""
+  },
+  "bindings": [
+    {
+      "name": "muse",
+      "delivery": "pull",
+      "allow_wxids": []
+    }
+  ]
+}

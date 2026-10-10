@@ -1,0 +1,25 @@
+# systemd unit for running wx-bot inside the Muse runtime (guest system manager).
+# Replace __HOME__ with the absolute home directory and __USER__ with the user
+# that owns it, then install to /etc/systemd/system/wx-bot.service.
+[Unit]
+Description=wx-bot WeChat iLink bridge (pull delivery for Muse)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=__USER__
+Environment=HOME=__HOME__
+WorkingDirectory=__HOME__
+EnvironmentFile=-__HOME__/.config/wx-bot/env
+ExecStart=__HOME__/.local/bin/wx-bot --config __HOME__/.config/wx-bot/config.json run
+Restart=always
+RestartSec=5
+StartLimitIntervalSec=300
+StartLimitBurst=10
+TimeoutStopSec=15
+KillMode=control-group
+MemoryMax=256M
+
+[Install]
+WantedBy=default.target

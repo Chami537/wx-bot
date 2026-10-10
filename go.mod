@@ -2,7 +2,11 @@ module github.com/lawrencewzen/wx-bot
 
 go 1.24.0
 
-require github.com/mdp/qrterminal/v3 v3.2.1
+require (
+	github.com/mdp/qrterminal/v3 v3.2.1
+	modernc.org/sqlite v1.34.5
+	rsc.io/qr v0.2.0
+)
 
 require (
 	github.com/dustin/go-humanize v1.0.1 // indirect
@@ -15,6 +19,4 @@ require (
 	modernc.org/libc v1.55.3 // indirect
 	modernc.org/mathutil v1.6.0 // indirect
 	modernc.org/memory v1.8.0 // indirect
-	modernc.org/sqlite v1.34.5 // indirect
-	rsc.io/qr v0.2.0 // indirect
 )
