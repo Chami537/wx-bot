@@ -12,10 +12,12 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/Go-1.24-111111?style=flat-square&logo=go&logoColor=white" alt="Go 1.24">
-  <img src="https://img.shields.io/badge/platform-Linux%20%7C%20macOS-111111?style=flat-square" alt="Linux | macOS">
-  <img src="https://img.shields.io/badge/network-outbound%20only-111111?style=flat-square" alt="outbound only">
-  <img src="https://img.shields.io/badge/WeChat-ClawBot%20%2F%20iLink-111111?style=flat-square" alt="WeChat ClawBot / iLink">
+  <img src="https://img.shields.io/badge/Go-1.24-00ADD8?style=flat-square&logo=go&logoColor=white" alt="Go 1.24">
+  <img src="https://img.shields.io/badge/Linux-supported-FCC624?style=flat-square&logo=linux&logoColor=black" alt="Linux">
+  <img src="https://img.shields.io/badge/macOS-supported-8E8E93?style=flat-square&logo=apple&logoColor=white" alt="macOS">
+  <img src="https://img.shields.io/badge/WeChat-ClawBot%20%2F%20iLink-07C160?style=flat-square&logo=wechat&logoColor=white" alt="WeChat ClawBot / iLink">
+  <img src="https://img.shields.io/badge/network-outbound%20only-2EA44F?style=flat-square" alt="outbound only">
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue?style=flat-square" alt="MIT License"></a>
 </p>
 
 <p align="center">
