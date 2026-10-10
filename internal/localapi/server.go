@@ -5,15 +5,20 @@ import (
 	"crypto/subtle"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log/slog"
+	"mime"
 	"net"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/lawrencewzen/wx-bot/internal/bridge"
 	"github.com/lawrencewzen/wx-bot/internal/config"
+	"github.com/lawrencewzen/wx-bot/internal/ilink"
 	"github.com/lawrencewzen/wx-bot/internal/inbox"
 )
 
@@ -23,6 +28,8 @@ type Server struct {
 	Token  string
 	Send   func(ctx context.Context, req bridge.SendRequest) error
 	Status func() []bridge.BindingStatus
+	// UploadDir holds multipart uploads to /v1/send until they are sent.
+	UploadDir string
 	// Inbox and PullBindings enable /v1/events for pull-delivery bindings.
 	Inbox        *inbox.Inbox
 	PullBindings []string
@@ -44,11 +51,12 @@ type sendBody struct {
 // New constructs a Server from config.
 func New(cfg *config.Config, send func(context.Context, bridge.SendRequest) error, status func() []bridge.BindingStatus) *Server {
 	return &Server{
-		Listen: cfg.LocalAPI.Listen,
-		Token:  cfg.LocalAPI.Token,
-		Send:   send,
-		Status: status,
-		Log:    slog.Default().With("component", "localapi"),
+		Listen:    cfg.LocalAPI.Listen,
+		Token:     cfg.LocalAPI.Token,
+		Send:      send,
+		Status:    status,
+		UploadDir: filepath.Join(cfg.MediaDir, "outgoing"),
+		Log:       slog.Default().With("component", "localapi"),
 	}
 }
 
@@ -126,8 +134,15 @@ func (s *Server) handleSend(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var body sendBody
-	dec := json.NewDecoder(r.Body)
-	if err := dec.Decode(&body); err != nil {
+	if mt, _, _ := mime.ParseMediaType(r.Header.Get("Content-Type")); mt == "multipart/form-data" {
+		b, cleanup, code, err := s.readMultipart(r)
+		defer cleanup()
+		if err != nil {
+			writeJSON(w, code, map[string]string{"error": err.Error()})
+			return
+		}
+		body = b
+	} else if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid json: " + err.Error()})
 		return
 	}
@@ -160,6 +175,8 @@ func (s *Server) handleSend(w http.ResponseWriter, r *http.Request) {
 			code = http.StatusConflict
 		case strings.Contains(msg, "expired"):
 			code = http.StatusUnauthorized
+		case strings.Contains(msg, "too large"):
+			code = http.StatusRequestEntityTooLarge
 		}
 		writeJSON(w, code, map[string]string{"error": msg})
 		return
@@ -183,6 +200,98 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 		list = []bridge.BindingStatus{}
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"bindings": list})
+}
+
+const (
+	maxUpload     = 100 << 20 // matches the iLink media limit
+	maxFormField  = 64 << 10
+	uploadDirPerm = 0o700
+)
+
+// readMultipart parses a multipart /v1/send request. Text fields: binding, to,
+// text, caption. At most one file part named image, file or video; it is
+// stored under UploadDir with its sanitized original name. cleanup removes it.
+func (s *Server) readMultipart(r *http.Request) (sendBody, func(), int, error) {
+	var body sendBody
+	var tmpDir string
+	cleanup := func() {
+		if tmpDir != "" {
+			_ = os.RemoveAll(tmpDir)
+		}
+	}
+	mr, err := r.MultipartReader()
+	if err != nil {
+		return body, cleanup, http.StatusBadRequest, fmt.Errorf("invalid multipart: %w", err)
+	}
+	for {
+		part, err := mr.NextPart()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return body, cleanup, http.StatusBadRequest, fmt.Errorf("invalid multipart: %w", err)
+		}
+		name := part.FormName()
+		if part.FileName() == "" {
+			v, err := io.ReadAll(io.LimitReader(part, maxFormField+1))
+			if err != nil {
+				return body, cleanup, http.StatusBadRequest, err
+			}
+			if len(v) > maxFormField {
+				return body, cleanup, http.StatusRequestEntityTooLarge, fmt.Errorf("field %s too large", name)
+			}
+			switch name {
+			case "binding":
+				body.Binding = string(v)
+			case "to":
+				body.To = string(v)
+			case "text":
+				body.Text = string(v)
+			case "caption":
+				body.Caption = string(v)
+			}
+			continue
+		}
+		if name != "image" && name != "file" && name != "video" {
+			return body, cleanup, http.StatusBadRequest, fmt.Errorf("file part must be named image, file or video, got %q", name)
+		}
+		if tmpDir != "" {
+			return body, cleanup, http.StatusBadRequest, fmt.Errorf("only one file part is allowed")
+		}
+		if s.UploadDir == "" {
+			return body, cleanup, http.StatusInternalServerError, fmt.Errorf("uploads not configured")
+		}
+		if err := os.MkdirAll(s.UploadDir, uploadDirPerm); err != nil {
+			return body, cleanup, http.StatusInternalServerError, err
+		}
+		if tmpDir, err = os.MkdirTemp(s.UploadDir, "send-*"); err != nil {
+			return body, cleanup, http.StatusInternalServerError, err
+		}
+		dest := filepath.Join(tmpDir, ilink.SanitizeFilename(part.FileName()))
+		f, err := os.OpenFile(dest, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+		if err != nil {
+			return body, cleanup, http.StatusInternalServerError, err
+		}
+		n, err := io.Copy(f, io.LimitReader(part, maxUpload+1))
+		if cerr := f.Close(); err == nil {
+			err = cerr
+		}
+		if err != nil {
+			return body, cleanup, http.StatusBadRequest, fmt.Errorf("read upload: %w", err)
+		}
+		if n > maxUpload {
+			return body, cleanup, http.StatusRequestEntityTooLarge, fmt.Errorf("upload too large (>100 MB)")
+		}
+		switch name {
+		case "image":
+			body.Image = dest
+		case "file":
+			body.File = dest
+		case "video":
+			body.Video = dest
+		}
+	}
+	return body, cleanup, 0, nil
 }
 
 // handleEvents claims events: GET /v1/events?binding=&limit=&lease=&wait=

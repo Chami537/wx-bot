@@ -375,7 +375,7 @@ func (p *Poller) buildPayload(ctx context.Context, msg ilink.IncomingMessage) (P
 		Media:           media,
 		MediaErrors:     mediaErrs,
 		HasContextToken: msg.ContextToken != "" || p.Client.ContextToken(msg.FromUserID) != "",
-		ReplyHint:       fmt.Sprintf("wx-bot send --binding %s --to %s --text '...'", p.Name, msg.FromUserID),
+		ReplyHint:       fmt.Sprintf("wx-bot send --binding %s --to %s --text - <<'EOF'\n<reply>\nEOF", p.Name, msg.FromUserID),
 	}, nil
 }
 

@@ -39,7 +39,7 @@ wx-bot 收到微信消息后，先写入本地收件箱，写成功才推进 iLi
   ],
   "media_errors": ["video: download failed"],
   "has_context_token": true,
-  "reply_hint": "wx-bot send --binding xiaox --to wxid_xxx --text '...'"
+  "reply_hint": "wx-bot send --binding xiaox --to wxid_xxx --text - <<'EOF'\n<reply>\nEOF"
 }
 ```
 
@@ -151,6 +151,9 @@ POST /v1/events/ack     {"event_ids": ["muse:1001"]}
 
 ```bash
 wx-bot send --binding <binding> --to <from_wxid> --text '你好'
+wx-bot send --binding <binding> --to <from_wxid> --text - <<'EOF'
+从 stdin 读取，内容里的引号和 $ 不用转义（推荐 Agent 使用）
+EOF
 wx-bot send --binding <binding> --to <from_wxid> --image ./a.jpg --caption '见图'
 wx-bot send --binding <binding> --to <from_wxid> --file ./a.pdf
 wx-bot send --binding <binding> --to <from_wxid> --video ./a.mp4
@@ -165,12 +168,25 @@ POST /v1/send
 {"binding": "xiaox", "to": "wxid_xxx", "text": "你好"}
 ```
 
-`text`、`image`、`file`、`video` 四选一；`image`、`file`、`video` 是本机路径，可附 `caption`。
+`text`、`image`、`file`、`video` 四选一；`image`、`file`、`video` 是 wx-bot 所在机器上的路径，可附 `caption`。
+
+Agent 与 wx-bot 不在同一文件系统时，用 multipart 直接上传文件：
+
+```
+POST /v1/send
+Content-Type: multipart/form-data
+
+binding=xiaox  to=wxid_xxx  caption=见图（可选）  text=…（发文字时）
+image=@a.jpg   或 file=@a.pdf   或 video=@a.mp4   （最多一个文件，≤ 100 MB）
+```
+
+上传的文件在发送后删除。
 
 | 状态码 | 含义 | Agent 应该 |
 | --- | --- | --- |
 | 200 | 已发送 | 标记完成 |
 | 400 | 请求不合法 | 修正请求，不重试 |
+| 413 | 文件超过 100 MB | 不重试 |
 | 401 | token 错误，或该 binding 登录已过期 | 不重试；检查 token 或重新扫码 |
 | 403 | 收件人不在白名单 | 不重试 |
 | 404 | binding 不存在 | 不重试 |

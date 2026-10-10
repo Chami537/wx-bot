@@ -138,7 +138,7 @@ wx-bot run                # 启动
   "text": "文本",
   "voice_text": "语音转写",
   "media": [{ "type": "image", "path": "/abs/path", "file_name": "image.jpg", "size": 123 }],
-  "reply_hint": "wx-bot send --binding xiaox --to wxid_xxx --text '...'"
+  "reply_hint": "wx-bot send --binding xiaox --to wxid_xxx --text - <<'EOF'\n<reply>\nEOF"
 }
 ```
 
@@ -160,6 +160,9 @@ wx-bot inbox ack <event_id>...        # 处理完后确认；未确认的在租�
 
 ```bash
 wx-bot send --binding xiaox --to <wxid> --text '你好'
+wx-bot send --binding xiaox --to <wxid> --text - <<'EOF'    # 从 stdin 读，内容里的引号和 $ 不用转义
+大模型生成的回复原样放这里
+EOF
 wx-bot send --binding xiaox --to <wxid> --image ./a.jpg --caption '见图'
 wx-bot send --binding xiaox --to <wxid> --file ./a.pdf
 wx-bot send --binding xiaox --to <wxid> --video ./a.mp4
@@ -171,6 +174,10 @@ wx-bot status
 ```bash
 curl -X POST http://127.0.0.1:18790/v1/send \
   -d '{"binding":"xiaox","to":"wxid_xxx","text":"你好"}'
+
+# 图片、文件、视频也可以直接上传，不要求文件在 wx-bot 所在机器上
+curl -X POST http://127.0.0.1:18790/v1/send \
+  -F binding=xiaox -F to=wxid_xxx -F caption='见图' -F image=@./a.jpg
 ```
 
 只发纯文本，Markdown 请在 Agent 侧去掉。单文件上限 100 MB。

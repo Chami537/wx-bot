@@ -12,6 +12,13 @@
 所有 Agent 都要遵守：
 
 - 回复微信只发**纯文本**，不要用 Markdown，链接直接写网址。
+- 发文字一律用 `--text -` 加带引号的 heredoc，回复里的引号、`$` 都不用转义：
+
+  ```bash
+  ~/.local/bin/wx-bot send --binding <binding> --to <from_wxid> --text - <<'EOF'
+  <回复>
+  EOF
+  ```
 - 同一条消息可能收到不止一次，按 `event_id` 去重。
 - `wx-bot send` 失败：提示 `no context_token` 表示用户还没先给 ClawBot 发过消息；提示 `expired` 或 `-14` 表示登录过期，需要重新扫码。都在你自己的聊天里告诉用户，不要反复重试。
 
@@ -45,7 +52,7 @@
 
 2. **创建 routine**：触发方式选 **webhook**，名称如「微信消息」。指令里写明：
    - 收到的 JSON 中 `text` 是文字，`voice_text` 是语音转写，`media[].path` 是本机文件绝对路径，`from_wxid` 是发送者，`binding` 是绑定名。
-   - 回复用 `~/.local/bin/wx-bot send --binding <binding> --to <from_wxid> --text '<回复>'`；图片、文件、视频用 `--image` / `--file` / `--video`。
+   - 回复用 `~/.local/bin/wx-bot send --binding <binding> --to <from_wxid> --text - <<'EOF'`，下一行起是回复内容，最后一行 `EOF`；图片、文件、视频用 `--image` / `--file` / `--video`。
    - 微信只显示纯文本，回复里不要用 Markdown。
    - `wx-bot send` 报 `-14` 或 `no context_token` 时，在 Grok Bot 聊天里告诉用户需要重新扫码登录。
 
@@ -111,7 +118,7 @@ wx-bot 跑在**你自己的运行环境**里（不是用户的 Mac），作为 s
 
    1. `~/.local/bin/wx-bot inbox pull --binding muse --lease 30m`，得到 `{"events": [...]}`。
    2. 逐条处理：`text` 是文字，`voice_text` 是语音转写，`media[].path` 是本机文件（可直接读取），`from_wxid` 是发送者。把它当作用户直接对你说的话；三者都为空的事件直接跳过。
-   3. 回复：`~/.local/bin/wx-bot send --binding muse --to <from_wxid> --text '<回复>'`，图片、文件、视频用 `--image` / `--file` / `--video`。只发纯文本。较长的任务先回一句简短确认，做完再发结果。
+   3. 回复：`~/.local/bin/wx-bot send --binding muse --to <from_wxid> --text - <<'EOF'`，下一行起是回复内容，最后一行 `EOF`；图片、文件、视频用 `--image` / `--file` / `--video`。只发纯文本。较长的任务先回一句简短确认，做完再发结果。
    4. 每条处理完（包括决定不回复）后：`~/.local/bin/wx-bot inbox ack <event_id>`。没 ack 的消息 30 分钟后会再次唤醒你。
    5. `send` 失败时按本文开头的规则在 Muse 聊天里告诉用户；登录过期就重做第 3 步并重启服务。
 
