@@ -51,11 +51,14 @@ func (l *LoginAPI) http() *http.Client {
 func (l *LoginAPI) GetQRCode(ctx context.Context) (qrID, imgURL string, err error) {
 	reqURL := l.authBase() + qrCodePath + "?bot_type=3"
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, reqURL, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, reqURL, strings.NewReader(`{"local_token_list":[]}`))
 	if err != nil {
 		return "", "", fmt.Errorf("build qr request: %w", err)
 	}
+	// JSON POST headers with AuthorizationType and X-WECHAT-UIN, but no Authorization.
 	AddAppHeaders(req, "")
+	req.Header.Set("AuthorizationType", "ilink_bot_token")
+	req.Header.Set("Content-Type", "application/json")
 
 	resp, err := l.http().Do(req)
 	if err != nil {
@@ -104,7 +107,7 @@ func (l *LoginAPI) pollQRStatus(ctx context.Context, qrID, host string) (*Sessio
 		if err != nil {
 			return nil, fmt.Errorf("build poll request: %w", err)
 		}
-		AddAppHeaders(req, "")
+		addAppIdentity(req)
 
 		resp, err := l.http().Do(req)
 		if err != nil {

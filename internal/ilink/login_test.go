@@ -45,12 +45,36 @@ func TestLoginRedirectThenConfirm(t *testing.T) {
 			if r.URL.Query().Get("bot_type") != "3" {
 				t.Errorf("bot_type=%s", r.URL.Query().Get("bot_type"))
 			}
+			if r.Method != http.MethodPost {
+				t.Errorf("qrcode method %s, want POST", r.Method)
+			}
+			body, _ := io.ReadAll(r.Body)
+			if string(body) != `{"local_token_list":[]}` {
+				t.Errorf("qrcode body %q", body)
+			}
+			if r.Header.Get("Content-Type") != "application/json" {
+				t.Errorf("qrcode Content-Type %q", r.Header.Get("Content-Type"))
+			}
+			if r.Header.Get("AuthorizationType") != "ilink_bot_token" {
+				t.Errorf("qrcode AuthorizationType %q", r.Header.Get("AuthorizationType"))
+			}
+			if r.Header.Get("X-WECHAT-UIN") == "" {
+				t.Errorf("qrcode missing X-WECHAT-UIN")
+			}
+			if r.Header.Get("Authorization") != "" {
+				t.Errorf("qrcode must not send Authorization")
+			}
 			_ = json.NewEncoder(w).Encode(QRCodeResponse{
 				Ret:              0,
 				Qrcode:           "qr-1",
 				QrcodeImgContent: "https://example.com/qr.png",
 			})
 		case qrStatusPath:
+			for _, h := range []string{"AuthorizationType", "Authorization", "X-WECHAT-UIN"} {
+				if r.Header.Get(h) != "" {
+					t.Errorf("qr status must not send %s", h)
+				}
+			}
 			n := statusHits.Add(1)
 			if n == 1 {
 				_ = json.NewEncoder(w).Encode(QRStatusResponse{

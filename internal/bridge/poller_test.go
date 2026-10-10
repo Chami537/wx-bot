@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -49,6 +50,7 @@ type ilinkScript struct {
 	resps   []ilink.GetUpdatesResponse
 	i       int
 	headers []http.Header
+	bodies  []string
 }
 
 func (s *ilinkScript) handler(w http.ResponseWriter, r *http.Request) {
@@ -56,8 +58,10 @@ func (s *ilinkScript) handler(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
+	body, _ := io.ReadAll(r.Body)
 	s.mu.Lock()
 	s.headers = append(s.headers, r.Header.Clone())
+	s.bodies = append(s.bodies, string(body))
 	if s.i < len(s.resps) {
 		resp := s.resps[s.i]
 		s.i++
@@ -79,6 +83,12 @@ func (s *ilinkScript) getHeaders() []http.Header {
 	out := make([]http.Header, len(s.headers))
 	copy(out, s.headers)
 	return out
+}
+
+func (s *ilinkScript) getBodies() []string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return append([]string(nil), s.bodies...)
 }
 
 func saveSession(t *testing.T, dir, binding, token, botID, userID, base string) *state.Store {
@@ -413,7 +423,8 @@ func TestPollerTwoImagesDistinctFiles(t *testing.T) {
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	go p.Run(ctx)
+	done := make(chan struct{})
+	go func() { p.Run(ctx); close(done) }()
 
 	var hit hookHit
 	select {
@@ -422,6 +433,7 @@ func TestPollerTwoImagesDistinctFiles(t *testing.T) {
 		t.Fatal("timeout waiting for webhook")
 	}
 	cancel()
+	<-done
 
 	var payload Payload
 	if err := json.Unmarshal(hit.Body, &payload); err != nil {
@@ -475,7 +487,8 @@ func TestPollerHasContextTokenFromCache(t *testing.T) {
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	go p.Run(ctx)
+	done := make(chan struct{})
+	go func() { p.Run(ctx); close(done) }()
 	var hit hookHit
 	select {
 	case hit = <-hits:
@@ -483,11 +496,70 @@ func TestPollerHasContextTokenFromCache(t *testing.T) {
 		t.Fatal("timeout")
 	}
 	cancel()
+	<-done
 	var payload Payload
 	if err := json.Unmarshal(hit.Body, &payload); err != nil {
 		t.Fatal(err)
 	}
 	if !payload.HasContextToken {
 		t.Fatal("HasContextToken should be true when a cached token exists")
+	}
+}
+
+func TestPollerBusinessErrorKeepsCursor(t *testing.T) {
+	msg := ilink.IncomingMessage{
+		MessageID:    11,
+		FromUserID:   "wxid_owner",
+		ToUserID:     "bot@im.bot",
+		CreateTimeMs: 1760000000000,
+		ItemList:     []ilink.MessageItem{{Type: ilink.ItemTypeText, TextItem: &ilink.TextItem{Text: "after error"}}},
+	}
+	script := &ilinkScript{resps: []ilink.GetUpdatesResponse{
+		{Ret: -1, GetUpdatesBuf: "bad-cursor", Msgs: []ilink.IncomingMessage{msg}},
+		{GetUpdatesBuf: "good-cursor", Msgs: []ilink.IncomingMessage{msg}},
+	}}
+	ilinkSrv := httptest.NewServer(http.HandlerFunc(script.handler))
+	closeServer(t, ilinkSrv)
+	hits := make(chan hookHit, 2)
+	hook := startWebhook(t, hits)
+	st := saveSession(t, t.TempDir(), "xiaox", "tok", "bot@im.bot", "wxid_owner", ilinkSrv.URL)
+	p := &Poller{
+		Name:           "xiaox",
+		Client:         ilink.NewClient(&ilink.Session{BotToken: "tok", BaseURL: ilinkSrv.URL, BotID: "bot@im.bot", UserID: "wxid_owner"}),
+		Store:          st,
+		Allow:          NewAllowlist(nil, "wxid_owner"),
+		Webhook:        &Dispatcher{Webhook: config.Webhook{URL: hook.URL}, Attempts: 1},
+		MediaDir:       t.TempDir(),
+		DefaultTimeout: 200 * time.Millisecond,
+		RetryDelay:     10 * time.Millisecond,
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	done := make(chan struct{})
+	go func() { p.Run(ctx); close(done) }()
+
+	select {
+	case <-hits:
+	case <-time.After(3 * time.Second):
+		t.Fatal("timeout waiting for webhook")
+	}
+	cancel()
+	<-done
+
+	select {
+	case <-hits:
+		t.Fatal("message from the business-error response was delivered")
+	default:
+	}
+	cursor, err := st.LoadCursor()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cursor != "good-cursor" {
+		t.Fatalf("cursor %q, want good-cursor", cursor)
+	}
+	bodies := script.getBodies()
+	if len(bodies) < 2 || !strings.Contains(bodies[1], `"get_updates_buf":""`) {
+		t.Fatalf("second getupdates should reuse the old cursor, got %v", bodies)
 	}
 }

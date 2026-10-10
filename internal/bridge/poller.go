@@ -132,6 +132,30 @@ func (p *Poller) Run(ctx context.Context) {
 			continue
 		}
 
+		if resp.ErrCode == ilink.ErrCodeExpired || resp.Ret == ilink.ErrCodeExpired {
+			log.Error("binding session expired: run `wx-bot login "+p.Name+"`", "binding", p.Name, "errcode", resp.ErrCode, "ret", resp.Ret)
+			if err := p.Store.MarkExpired(); err != nil {
+				log.Error("write expired marker", "err", err)
+			}
+			return
+		}
+
+		// Business error: keep the cursor and messages untouched, retry like a transport error.
+		if resp.Ret != 0 || resp.ErrCode != 0 {
+			consecFailures++
+			log.Warn("getupdates business error; cursor unchanged", "ret", resp.Ret, "errcode", resp.ErrCode, "failures", consecFailures)
+			delay := p.retry()
+			if consecFailures >= p.maxFail() {
+				delay = p.backoff()
+			}
+			select {
+			case <-time.After(delay):
+			case <-ctx.Done():
+				return
+			}
+			continue
+		}
+
 		consecFailures = 0
 
 		if resp.GetUpdatesBuf != "" {
@@ -143,14 +167,6 @@ func (p *Poller) Run(ctx context.Context) {
 
 		if resp.LongpollingTimeoutMs > 0 {
 			pollTimeout = time.Duration(resp.LongpollingTimeoutMs) * time.Millisecond
-		}
-
-		if resp.ErrCode == ilink.ErrCodeExpired || resp.Ret == ilink.ErrCodeExpired {
-			log.Error("binding session expired: run `wx-bot login "+p.Name+"`", "binding", p.Name, "errcode", resp.ErrCode, "ret", resp.Ret)
-			if err := p.Store.MarkExpired(); err != nil {
-				log.Error("write expired marker", "err", err)
-			}
-			return
 		}
 
 		for _, msg := range resp.Msgs {
