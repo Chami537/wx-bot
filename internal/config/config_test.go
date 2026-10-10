@@ -163,3 +163,32 @@ func TestCheckLoopbackListen(t *testing.T) {
 		t.Fatal("expected reject")
 	}
 }
+
+func TestDeliveryDefaultAndPull(t *testing.T) {
+	p := writeCfg(t, `{
+  "bindings": [
+    {"name": "a", "webhook": {"url": "https://x"}},
+    {"name": "b", "delivery": "pull"}
+  ]
+}`)
+	cfg, err := Load(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Bindings[0].Delivery != DeliveryWebhook {
+		t.Fatalf("default delivery %q", cfg.Bindings[0].Delivery)
+	}
+	if got := cfg.PullBindings(); len(got) != 1 || got[0] != "b" {
+		t.Fatalf("pull bindings %v", got)
+	}
+	if !strings.HasSuffix(cfg.InboxPath(), "inbox.db") {
+		t.Fatalf("inbox path %s", cfg.InboxPath())
+	}
+}
+
+func TestBadDelivery(t *testing.T) {
+	p := writeCfg(t, `{"bindings": [{"name": "a", "delivery": "exec"}]}`)
+	if _, err := Load(p); err == nil || !strings.Contains(err.Error(), "delivery") {
+		t.Fatalf("want delivery error, got %v", err)
+	}
+}

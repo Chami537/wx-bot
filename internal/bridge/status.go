@@ -1,10 +1,12 @@
 package bridge
 
 import (
+	"context"
 	"sort"
 	"unicode/utf8"
 
 	"github.com/lawrencewzen/wx-bot/internal/config"
+	"github.com/lawrencewzen/wx-bot/internal/inbox"
 	"github.com/lawrencewzen/wx-bot/internal/state"
 )
 
@@ -16,14 +18,24 @@ type BindingStatus struct {
 	BotID       string   `json:"bot_id"`
 	CursorSet   bool     `json:"cursor_set"`
 	Allowlist   []string `json:"allowlist"`
+	Delivery    string   `json:"delivery"`
 	WebhookHost string   `json:"webhook_host"`
+	// Inbox is nil when the inbox could not be read.
+	Inbox *inbox.Counts `json:"inbox,omitempty"`
 }
 
 // StatusOf computes status for one configured binding from disk.
-func StatusOf(cfg *config.Config, b config.Binding) BindingStatus {
+// box may be nil.
+func StatusOf(cfg *config.Config, b config.Binding, box *inbox.Inbox) BindingStatus {
 	st := BindingStatus{
 		Name:        b.Name,
+		Delivery:    b.Delivery,
 		WebhookHost: Host(b.Webhook.URL),
+	}
+	if box != nil {
+		if c, err := box.Stats(context.Background(), b.Name); err == nil {
+			st.Inbox = &c
+		}
 	}
 	store, err := state.Open(cfg.StateDir, b.Name)
 	if err != nil {
@@ -45,10 +57,10 @@ func StatusOf(cfg *config.Config, b config.Binding) BindingStatus {
 }
 
 // StatusAll returns status for every configured binding.
-func StatusAll(cfg *config.Config) []BindingStatus {
+func StatusAll(cfg *config.Config, box *inbox.Inbox) []BindingStatus {
 	out := make([]BindingStatus, 0, len(cfg.Bindings))
 	for _, b := range cfg.Bindings {
-		out = append(out, StatusOf(cfg, b))
+		out = append(out, StatusOf(cfg, b, box))
 	}
 	return out
 }

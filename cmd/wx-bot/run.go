@@ -10,9 +10,11 @@ import (
 	"os/signal"
 	"sync"
 	"syscall"
+	"time"
 
 	"github.com/lawrencewzen/wx-bot/internal/bridge"
 	"github.com/lawrencewzen/wx-bot/internal/config"
+	"github.com/lawrencewzen/wx-bot/internal/inbox"
 	"github.com/lawrencewzen/wx-bot/internal/localapi"
 	"github.com/lawrencewzen/wx-bot/internal/state"
 )
@@ -32,6 +34,17 @@ func cmdRun(configPath string, args []string) int {
 		return 1
 	}
 
+	if err := state.MkdirAll0700(cfg.StateDir); err != nil {
+		fmt.Fprintf(os.Stderr, "wx-bot: state dir: %v\n", err)
+		return 1
+	}
+	box, err := inbox.Open(cfg.InboxPath())
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "wx-bot: %v\n", err)
+		return 1
+	}
+	defer box.Close()
+
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
@@ -41,6 +54,25 @@ func cmdRun(configPath string, args []string) int {
 	var wg sync.WaitGroup
 	for _, b := range cfg.Bindings {
 		b := b
+		// Deliver queued events even while the binding is logged out or expired.
+		if b.Delivery == config.DeliveryWebhook {
+			if b.Webhook.URL == "" {
+				log.Warn("webhook.url empty; events stay in the inbox until it is set", "binding", b.Name)
+			} else {
+				worker := &bridge.WebhookWorker{
+					Binding:    b.Name,
+					Inbox:      box,
+					Dispatcher: &bridge.Dispatcher{Webhook: b.Webhook, Attempts: 1},
+					Log:        log.With("component", "webhook", "binding", b.Name),
+				}
+				wg.Add(1)
+				go func() {
+					defer wg.Done()
+					worker.Run(ctx)
+				}()
+			}
+		}
+
 		store, err := state.Open(cfg.StateDir, b.Name)
 		if err != nil {
 			log.Error("open binding state", "binding", b.Name, "err", err)
@@ -61,17 +93,13 @@ func cmdRun(configPath string, args []string) int {
 		}
 		rt.put(lb)
 
-		wh := &bridge.Dispatcher{
-			Webhook: b.Webhook,
-			Log:     log.With("component", "webhook", "binding", b.Name),
-		}
 		poller := &bridge.Poller{
 			Name:             b.Name,
 			Client:           lb.Client,
 			Store:            lb.Store,
 			Allow:            lb.Allow,
 			ForwardUnallowed: b.ForwardUnallowed,
-			Webhook:          wh,
+			Inbox:            box,
 			MediaDir:         cfg.MediaDir,
 			Log:              log.With("component", "poller", "binding", b.Name),
 		}
@@ -82,9 +110,17 @@ func cmdRun(configPath string, args []string) int {
 		}()
 	}
 
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		pruneLoop(ctx, box, log)
+	}()
+
 	api := localapi.New(cfg, rt.send, func() []bridge.BindingStatus {
-		return bridge.StatusAll(cfg)
+		return bridge.StatusAll(cfg, box)
 	})
+	api.Inbox = box
+	api.PullBindings = cfg.PullBindings()
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
@@ -98,6 +134,31 @@ func cmdRun(configPath string, args []string) int {
 	log.Info("shutting down")
 	wg.Wait()
 	return 0
+}
+
+// inboxRetention is how long finished events are kept, and how long a
+// pending event may wait before it is given up.
+const inboxRetention = 7 * 24 * time.Hour
+
+func pruneLoop(ctx context.Context, box *inbox.Inbox, log *slog.Logger) {
+	t := time.NewTicker(time.Hour)
+	defer t.Stop()
+	for {
+		expired, deleted, err := box.Prune(ctx, inboxRetention)
+		if err != nil && ctx.Err() == nil {
+			log.Error("prune inbox", "err", err)
+		} else if expired > 0 {
+			log.Warn("inbox events expired before delivery", "count", expired)
+		}
+		if deleted > 0 {
+			log.Info("pruned inbox", "deleted", deleted)
+		}
+		select {
+		case <-t.C:
+		case <-ctx.Done():
+			return
+		}
+	}
 }
 
 type runTime struct {

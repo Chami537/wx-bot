@@ -32,9 +32,16 @@ type LocalAPI struct {
 	Token  string `json:"token"`
 }
 
-// Binding maps one WeChat account to one webhook.
+// Delivery modes: how queued messages reach the agent.
+const (
+	DeliveryWebhook = "webhook" // wx-bot POSTs each event to webhook.url
+	DeliveryPull    = "pull"    // the agent claims events via `wx-bot inbox` or /v1/events
+)
+
+// Binding maps one WeChat account to one agent.
 type Binding struct {
 	Name             string   `json:"name"`
+	Delivery         string   `json:"delivery"`
 	Webhook          Webhook  `json:"webhook"`
 	AllowWxids       []string `json:"allow_wxids"`
 	ForwardUnallowed bool     `json:"forward_unallowed"`
@@ -145,6 +152,9 @@ func (c *Config) applyDefaults() {
 		c.LocalAPI.Listen = DefaultListen
 	}
 	for i := range c.Bindings {
+		if c.Bindings[i].Delivery == "" {
+			c.Bindings[i].Delivery = DeliveryWebhook
+		}
 		w := &c.Bindings[i].Webhook
 		if w.KeyHeader == "" {
 			w.KeyHeader = defaultKeyHeader
@@ -169,8 +179,27 @@ func (c *Config) Validate() error {
 			return fmt.Errorf("duplicate binding name %q (index %d and %d)", b.Name, prev, i)
 		}
 		seen[b.Name] = i
+		if b.Delivery != DeliveryWebhook && b.Delivery != DeliveryPull {
+			return fmt.Errorf("bindings[%d].delivery %q invalid: must be %q or %q", i, b.Delivery, DeliveryWebhook, DeliveryPull)
+		}
 	}
 	return nil
+}
+
+// InboxPath is the SQLite inbox shared by all bindings.
+func (c *Config) InboxPath() string {
+	return filepath.Join(c.StateDir, "inbox.db")
+}
+
+// PullBindings returns the names of bindings with pull delivery.
+func (c *Config) PullBindings() []string {
+	var out []string
+	for _, b := range c.Bindings {
+		if b.Delivery == DeliveryPull {
+			out = append(out, b.Name)
+		}
+	}
+	return out
 }
 
 // Binding returns the named binding.

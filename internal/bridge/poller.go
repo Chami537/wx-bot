@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/lawrencewzen/wx-bot/internal/ilink"
+	"github.com/lawrencewzen/wx-bot/internal/inbox"
 	"github.com/lawrencewzen/wx-bot/internal/state"
 )
 
@@ -25,14 +26,16 @@ const (
 	maxConsecFailures  = 3
 )
 
-// Poller long-polls iLink getupdates for one binding and POSTs to the webhook.
+// Poller long-polls iLink getupdates for one binding and queues each
+// message in the inbox. The cursor advances only after the whole batch is
+// queued, so a failure replays the batch (the inbox ignores duplicates).
 type Poller struct {
 	Name             string
 	Client           *ilink.Client
 	Store            *state.Store
 	Allow            Allowlist
 	ForwardUnallowed bool
-	Webhook          *Dispatcher
+	Inbox            *inbox.Inbox
 	MediaDir         string
 	Log              *slog.Logger
 
@@ -158,19 +161,32 @@ func (p *Poller) Run(ctx context.Context) {
 
 		consecFailures = 0
 
-		if resp.GetUpdatesBuf != "" {
-			cursor = resp.GetUpdatesBuf
-			if err := p.Store.SaveCursor(cursor); err != nil {
-				log.Error("save cursor", "err", err)
-			}
-		}
-
 		if resp.LongpollingTimeoutMs > 0 {
 			pollTimeout = time.Duration(resp.LongpollingTimeoutMs) * time.Millisecond
 		}
 
+		queued := true
 		for _, msg := range resp.Msgs {
-			p.handleMessage(ctx, msg)
+			if err := p.handleMessage(ctx, msg); err != nil {
+				log.Error("queue message failed; cursor unchanged", "msg_id", msg.MessageID, "err", err)
+				queued = false
+				break
+			}
+		}
+		if !queued {
+			select {
+			case <-time.After(p.retry()):
+			case <-ctx.Done():
+				return
+			}
+			continue
+		}
+
+		if resp.GetUpdatesBuf != "" {
+			if err := p.Store.SaveCursor(resp.GetUpdatesBuf); err != nil {
+				log.Error("save cursor", "err", err)
+			}
+			cursor = resp.GetUpdatesBuf
 		}
 	}
 }
@@ -217,7 +233,9 @@ func (p *Poller) fetchUpdates(ctx context.Context, cursor string, timeout time.D
 	return &r, nil
 }
 
-func (p *Poller) handleMessage(ctx context.Context, msg ilink.IncomingMessage) {
+// handleMessage queues one message. It returns an error only when the message
+// could not be queued and the batch must be replayed.
+func (p *Poller) handleMessage(ctx context.Context, msg ilink.IncomingMessage) error {
 	wxid := msg.FromUserID
 	log := p.log().With("wxid", wxid, "msg_id", msg.MessageID)
 
@@ -225,7 +243,7 @@ func (p *Poller) handleMessage(ctx context.Context, msg ilink.IncomingMessage) {
 	if !allowed {
 		log.Info("unallowed sender")
 		if !p.ForwardUnallowed {
-			return
+			return nil
 		}
 	}
 
@@ -238,17 +256,20 @@ func (p *Poller) handleMessage(ctx context.Context, msg ilink.IncomingMessage) {
 
 	payload, err := p.buildPayload(ctx, msg)
 	if err != nil {
-		log.Error("build payload", "err", err)
-		return
+		return err
 	}
-
-	if p.Webhook == nil || p.Webhook.Webhook.URL == "" {
-		log.Warn("webhook url empty, dropping message")
-		return
+	body, err := EncodePayload(payload)
+	if err != nil {
+		return err
 	}
-	if err := p.Webhook.Post(ctx, payload); err != nil {
-		log.Error("webhook post", "err", err)
+	added, err := p.Inbox.Add(ctx, p.Name, payload.EventID, body)
+	if err != nil {
+		return err
 	}
+	if !added {
+		log.Debug("duplicate message ignored")
+	}
+	return nil
 }
 
 func (p *Poller) buildPayload(ctx context.Context, msg ilink.IncomingMessage) (Payload, error) {
@@ -342,6 +363,8 @@ func (p *Poller) buildPayload(ctx context.Context, msg ilink.IncomingMessage) (P
 	}
 
 	return Payload{
+		Schema:          EventSchema,
+		EventID:         p.Name + ":" + msgid,
 		Binding:         p.Name,
 		MessageID:       msgid,
 		FromWxid:        msg.FromUserID,

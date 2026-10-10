@@ -58,6 +58,8 @@ func main() {
 		exit = cmdSend(path, rest)
 	case "status":
 		exit = cmdStatus(path, rest)
+	case "inbox":
+		exit = cmdInbox(path, rest)
 	case "help", "-h", "--help":
 		usage(fs)
 	default:
@@ -99,9 +101,10 @@ Usage:
 
 Commands:
   login <binding>   Scan QR to log in a binding
-  run               Poll iLink and forward to webhooks
+  run               Poll iLink, queue messages, deliver to webhooks
   send              Send a message (see wx-bot send -h)
-  status            Show per-binding login / allowlist / webhook host
+  inbox             Claim / ack queued events for pull bindings (see wx-bot inbox)
+  status            Show per-binding login / delivery / inbox state
   version           Print version
 
 Flags:

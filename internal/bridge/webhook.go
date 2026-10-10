@@ -32,8 +32,13 @@ type MediaRef struct {
 	Size     int64  `json:"size"`
 }
 
-// Payload is POSTed to the binding webhook.
+// EventSchema identifies the inbound event format (docs/protocol.md).
+const EventSchema = "wxbot.event.v1"
+
+// Payload is the inbound event delivered to the agent (webhook body or pull item).
 type Payload struct {
+	Schema          string     `json:"schema"`
+	EventID         string     `json:"event_id"`
 	Binding         string     `json:"binding"`
 	MessageID       string     `json:"message_id"`
 	FromWxid        string     `json:"from_wxid"`
@@ -102,11 +107,8 @@ func Host(raw string) string {
 	return u.Host
 }
 
-// Post JSON-encodes p and delivers it. Retries on 5xx and network errors.
-func (d *Dispatcher) Post(ctx context.Context, p Payload) error {
-	if d.Webhook.URL == "" {
-		return fmt.Errorf("webhook url is empty")
-	}
+// EncodePayload returns the exact wire body for p (JSON plus trailing newline).
+func EncodePayload(p Payload) ([]byte, error) {
 	if p.Media == nil {
 		p.Media = []MediaRef{}
 	}
@@ -114,11 +116,25 @@ func (d *Dispatcher) Post(ctx context.Context, p Payload) error {
 	enc := json.NewEncoder(&buf)
 	enc.SetEscapeHTML(false)
 	if err := enc.Encode(p); err != nil {
-		return fmt.Errorf("encode webhook payload: %w", err)
+		return nil, fmt.Errorf("encode payload: %w", err)
 	}
-	// Encoder adds a trailing newline; keep the exact body for HMAC.
-	body := buf.Bytes()
+	return buf.Bytes(), nil
+}
 
+// Post JSON-encodes p and delivers it. Retries on 5xx and network errors.
+func (d *Dispatcher) Post(ctx context.Context, p Payload) error {
+	body, err := EncodePayload(p)
+	if err != nil {
+		return err
+	}
+	return d.PostBody(ctx, body)
+}
+
+// PostBody delivers an already-encoded body; the HMAC covers it byte for byte.
+func (d *Dispatcher) PostBody(ctx context.Context, body []byte) error {
+	if d.Webhook.URL == "" {
+		return fmt.Errorf("webhook url is empty")
+	}
 	var lastErr error
 	n := d.attempts()
 	delay := d.backoff()
@@ -140,6 +156,20 @@ func (d *Dispatcher) Post(ctx context.Context, p Payload) error {
 		d.log().Warn("webhook retry", "attempt", i+1, "err", lastErr)
 	}
 	return lastErr
+}
+
+// Permanent reports whether a delivery error will not succeed on retry
+// with the same body (malformed or rejected payload).
+func Permanent(err error) bool {
+	var se httpStatusError
+	if !errors.As(err, &se) {
+		return false
+	}
+	switch se.code {
+	case http.StatusBadRequest, http.StatusRequestEntityTooLarge, http.StatusUnprocessableEntity:
+		return true
+	}
+	return false
 }
 
 type httpStatusError struct {

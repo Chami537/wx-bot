@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -18,6 +19,7 @@ import (
 
 	"github.com/lawrencewzen/wx-bot/internal/config"
 	"github.com/lawrencewzen/wx-bot/internal/ilink"
+	"github.com/lawrencewzen/wx-bot/internal/inbox"
 	"github.com/lawrencewzen/wx-bot/internal/state"
 )
 
@@ -89,6 +91,26 @@ func (s *ilinkScript) getBodies() []string {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return append([]string(nil), s.bodies...)
+}
+
+// withWebhook opens a fresh inbox and drains binding's events to d until the
+// test ends.
+func withWebhook(t *testing.T, binding string, d *Dispatcher) *inbox.Inbox {
+	t.Helper()
+	in, err := inbox.Open(filepath.Join(t.TempDir(), "inbox.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	w := &WebhookWorker{Binding: binding, Inbox: in, Dispatcher: d}
+	go func() { w.Run(ctx); close(done) }()
+	t.Cleanup(func() {
+		cancel()
+		<-done
+		in.Close()
+	})
+	return in
 }
 
 func saveSession(t *testing.T, dir, binding, token, botID, userID, base string) *state.Store {
@@ -182,7 +204,7 @@ func TestPollerWebhookAuthHMACMediaAllowlistCursor(t *testing.T) {
 		Client:         client,
 		Store:          st,
 		Allow:          NewAllowlist(nil, "wxid_owner"),
-		Webhook:        wh,
+		Inbox:          withWebhook(t, "xiaox", wh),
 		MediaDir:       mediaDir,
 		DefaultTimeout: 200 * time.Millisecond,
 		RetryDelay:     20 * time.Millisecond,
@@ -320,7 +342,7 @@ func TestPollerErrCodeExpiredStopsOnlyThatBinding(t *testing.T) {
 			Client:         c,
 			Store:          st,
 			Allow:          NewAllowlist(nil, "wxid_owner"),
-			Webhook:        &Dispatcher{Webhook: config.Webhook{URL: hook.URL}, Attempts: 1},
+			Inbox:          withWebhook(t, name, &Dispatcher{Webhook: config.Webhook{URL: hook.URL}, Attempts: 1}),
 			MediaDir:       t.TempDir(),
 			DefaultTimeout: 200 * time.Millisecond,
 		}
@@ -417,7 +439,7 @@ func TestPollerTwoImagesDistinctFiles(t *testing.T) {
 		Client:         ilink.NewClient(&ilink.Session{BotToken: "tok", BaseURL: ilinkSrv.URL, BotID: "bot@im.bot", UserID: "wxid_owner"}),
 		Store:          st,
 		Allow:          NewAllowlist(nil, "wxid_owner"),
-		Webhook:        &Dispatcher{Webhook: config.Webhook{URL: hook.URL}, Attempts: 1},
+		Inbox:          withWebhook(t, "xiaox", &Dispatcher{Webhook: config.Webhook{URL: hook.URL}, Attempts: 1}),
 		MediaDir:       t.TempDir(),
 		DefaultTimeout: 200 * time.Millisecond,
 	}
@@ -481,7 +503,7 @@ func TestPollerHasContextTokenFromCache(t *testing.T) {
 		Client:         client,
 		Store:          st,
 		Allow:          NewAllowlist(nil, "wxid_owner"),
-		Webhook:        &Dispatcher{Webhook: config.Webhook{URL: hook.URL}, Attempts: 1},
+		Inbox:          withWebhook(t, "xiaox", &Dispatcher{Webhook: config.Webhook{URL: hook.URL}, Attempts: 1}),
 		MediaDir:       t.TempDir(),
 		DefaultTimeout: 200 * time.Millisecond,
 	}
@@ -528,7 +550,7 @@ func TestPollerBusinessErrorKeepsCursor(t *testing.T) {
 		Client:         ilink.NewClient(&ilink.Session{BotToken: "tok", BaseURL: ilinkSrv.URL, BotID: "bot@im.bot", UserID: "wxid_owner"}),
 		Store:          st,
 		Allow:          NewAllowlist(nil, "wxid_owner"),
-		Webhook:        &Dispatcher{Webhook: config.Webhook{URL: hook.URL}, Attempts: 1},
+		Inbox:          withWebhook(t, "xiaox", &Dispatcher{Webhook: config.Webhook{URL: hook.URL}, Attempts: 1}),
 		MediaDir:       t.TempDir(),
 		DefaultTimeout: 200 * time.Millisecond,
 		RetryDelay:     10 * time.Millisecond,
@@ -561,5 +583,93 @@ func TestPollerBusinessErrorKeepsCursor(t *testing.T) {
 	bodies := script.getBodies()
 	if len(bodies) < 2 || !strings.Contains(bodies[1], `"get_updates_buf":""`) {
 		t.Fatalf("second getupdates should reuse the old cursor, got %v", bodies)
+	}
+}
+
+func TestPollerReplayedMessageDeliveredOnce(t *testing.T) {
+	msg := ilink.IncomingMessage{
+		MessageID:    21,
+		FromUserID:   "wxid_owner",
+		ToUserID:     "bot@im.bot",
+		CreateTimeMs: 1760000000000,
+		ItemList:     []ilink.MessageItem{{Type: ilink.ItemTypeText, TextItem: &ilink.TextItem{Text: "once"}}},
+	}
+	script := &ilinkScript{resps: []ilink.GetUpdatesResponse{
+		{GetUpdatesBuf: "c1", Msgs: []ilink.IncomingMessage{msg}},
+		{GetUpdatesBuf: "c2", Msgs: []ilink.IncomingMessage{msg}},
+	}}
+	ilinkSrv := httptest.NewServer(http.HandlerFunc(script.handler))
+	closeServer(t, ilinkSrv)
+	hits := make(chan hookHit, 2)
+	hook := startWebhook(t, hits)
+	st := saveSession(t, t.TempDir(), "xiaox", "tok", "bot@im.bot", "wxid_owner", ilinkSrv.URL)
+	p := &Poller{
+		Name:           "xiaox",
+		Client:         ilink.NewClient(&ilink.Session{BotToken: "tok", BaseURL: ilinkSrv.URL, BotID: "bot@im.bot", UserID: "wxid_owner"}),
+		Store:          st,
+		Allow:          NewAllowlist(nil, "wxid_owner"),
+		Inbox:          withWebhook(t, "xiaox", &Dispatcher{Webhook: config.Webhook{URL: hook.URL}, Attempts: 1}),
+		MediaDir:       t.TempDir(),
+		DefaultTimeout: 200 * time.Millisecond,
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	done := make(chan struct{})
+	go func() { p.Run(ctx); close(done) }()
+
+	var hit hookHit
+	select {
+	case hit = <-hits:
+	case <-time.After(3 * time.Second):
+		t.Fatal("timeout waiting for webhook")
+	}
+	select {
+	case <-hits:
+		t.Fatal("replayed message delivered twice")
+	case <-time.After(300 * time.Millisecond):
+	}
+	cancel()
+	<-done
+	var payload Payload
+	if err := json.Unmarshal(hit.Body, &payload); err != nil {
+		t.Fatal(err)
+	}
+	if payload.Schema != EventSchema || payload.EventID != "xiaox:21" {
+		t.Fatalf("schema %q event_id %q", payload.Schema, payload.EventID)
+	}
+}
+
+func TestPollerQueueFailureKeepsCursor(t *testing.T) {
+	script := &ilinkScript{resps: []ilink.GetUpdatesResponse{{
+		GetUpdatesBuf: "must-not-save",
+		Msgs: []ilink.IncomingMessage{{
+			MessageID:  31,
+			FromUserID: "wxid_owner",
+			ItemList:   []ilink.MessageItem{{Type: ilink.ItemTypeText, TextItem: &ilink.TextItem{Text: "x"}}},
+		}},
+	}}}
+	ilinkSrv := httptest.NewServer(http.HandlerFunc(script.handler))
+	closeServer(t, ilinkSrv)
+	in, err := inbox.Open(filepath.Join(t.TempDir(), "inbox.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	in.Close() // every Add now fails
+	st := saveSession(t, t.TempDir(), "xiaox", "tok", "bot@im.bot", "wxid_owner", ilinkSrv.URL)
+	p := &Poller{
+		Name:           "xiaox",
+		Client:         ilink.NewClient(&ilink.Session{BotToken: "tok", BaseURL: ilinkSrv.URL, BotID: "bot@im.bot", UserID: "wxid_owner"}),
+		Store:          st,
+		Allow:          NewAllowlist(nil, "wxid_owner"),
+		Inbox:          in,
+		MediaDir:       t.TempDir(),
+		DefaultTimeout: 100 * time.Millisecond,
+		RetryDelay:     10 * time.Millisecond,
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+	defer cancel()
+	p.Run(ctx)
+	if cur, _ := st.LoadCursor(); cur != "" {
+		t.Fatalf("cursor advanced to %q although queueing failed", cur)
 	}
 }
