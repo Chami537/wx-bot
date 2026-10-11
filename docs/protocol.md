@@ -238,19 +238,28 @@ image=@a.jpg   或 file=@a.pdf   或 video=@a.mp4   （最多一个文件，≤ 
 
 `media[].path` 是 wx-bot 所在机器上的绝对路径。Agent 与 wx-bot 不在同一文件系统时（例如两个容器），需要把 `media_dir` 挂载为共享卷，并保证两边路径一致；否则 Agent 读不到附件。
 
-## 7. 部署约束
+## 7. 白名单
+
+每个绑定只和白名单里的微信号收发消息：
+
+| 字段 | 说明 |
+| --- | --- |
+| `allow_wxids` | 白名单。为空时只放行扫码登录的微信号；**不为空时只放行列出的 wxid，扫码登录的微信号不再自动包含**，需要的话把它也写进来。 |
+| `forward_unallowed` | 默认 `false`，白名单外的消息直接丢弃。设为 `true` 时这些消息也会投递给 Agent，但仍然不能回复（发送会被拒绝，HTTP 403）。 |
+
+## 8. 部署约束
 
 - wx-bot 只出站，不对外开端口；本地 API 只监听 loopback。
 - 容器部署时，Agent 与 wx-bot 共享网络命名空间（如 compose 的 `network_mode: service:<agent>`），通过 `127.0.0.1` 互访。
 - `webhook.key` 与 `local_api.token` 使用不同的随机值。
 - `state_dir` 必须持久化：其中有登录会话、游标和收件箱（`inbox.db`）。
 
-## 8. 版本规则
+## 9. 版本规则
 
 - v1 内只**新增**字段，不删除、不改变已有字段含义；Agent 应忽略不认识的字段。
 - 不兼容的变更发布为 v2，通过 `schema` 字段区分。
 
-## 9. 对接清单
+## 10. 对接清单
 
 - [ ] 选定投递方式（webhook / pull），能收到入站事件
 - [ ] webhook：校验 `Authorization`（及可选签名），15 秒内返回 2xx
