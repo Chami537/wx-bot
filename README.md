@@ -28,7 +28,7 @@
 ---
 
 > [!IMPORTANT]
-> **🤖 Agent 请先读 [`AGENTS.md`](https://github.com/lawrencewzen/wx-bot/blob/main/AGENTS.md)，找到你对应的一节（Grok Bot / Muse / Pi Durable），按里面的步骤安装。**
+> **🤖 Agent 请先读 [`AGENTS.md`](https://github.com/lawrencewzen/wx-bot/blob/main/AGENTS.md)，在表里找到你对应的文件（Grok Bot / Muse / Pi Durable），打开后按步骤安装。**
 > Grok Bot 最重要的一条：创建 routine 后，**必须在聊天回复里直接发出「Webhook URL」和「Webhook key」两个可点击的字段链接**。用户在侧栏点不开 routine 详情，不要让用户自己去找。
 
 ## 功能

@@ -12,7 +12,7 @@
 #
 # Wrap the final decision in the Muse hook script protocol:
 #   count > 0  -> wake  (wake text: "微信有 N 条新事件，按 wx-bot 指令处理")
-#   unhealthy  -> wake  (wake text: "wx-bot 异常：...，按 AGENTS.md「断线排查」处理")
+#   unhealthy  -> wake  (wake text: "wx-bot 异常：...，按 docs/agents/troubleshoot.md 处理")
 #   otherwise  -> silent
 #   error      -> silent, and report the error text
 set -eu

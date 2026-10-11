@@ -8,7 +8,7 @@
 | 任何版本（包括 Go 版 v0.3.x） | `curl -fsSL https://raw.githubusercontent.com/lawrencewzen/wx-bot/main/install.sh \| bash` |
 | Docker（如 Pi Durable） | 镜像改为 `ghcr.io/lawrencewzen/wx-bot:__VERSION_NUM__`，然后 `docker compose up -d` |
 
-让 Agent 升级：对 Grok Bot / Muse 说「帮我把 wx-bot 升级到最新版」，它会按 [AGENTS.md](https://github.com/lawrencewzen/wx-bot/blob/main/AGENTS.md#升级) 执行。
+让 Agent 升级：对 Grok Bot / Muse 说「帮我把 wx-bot 升级到最新版」，它会按 [升级说明](https://github.com/lawrencewzen/wx-bot/blob/main/docs/agents/upgrade.md) 执行。
 
 升级后用 `wx-bot version` 确认版本为 `__VERSION__`。需要回滚：`wx-bot update --version <旧版本>`。
 
