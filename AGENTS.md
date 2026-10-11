@@ -130,7 +130,7 @@ wx-bot 跑在**你自己的运行环境**里（不是用户的 Mac），作为 s
    - 否则运行 `wx-bot health --binding muse`，退出码非 0 时 `wake`（wx-bot 异常，唤醒文字带上它的输出），同一个问题只唤醒一次、之后每小时最多再提醒一次；
    - 其余 `silent`。
 
-   轮询间隔设 **5 秒**。先 `hooks.dry_run` 检查（`count` 和 `health` 都不领取消息，dry run 不会吃掉消息），再 `hooks.enable`。
+   轮询间隔：建 hook 时 **`poll_interval_secs` 设为 5**（平台下限，默认 60 太慢）。先 `hooks.dry_run` 检查（`count` 和 `health` 都不领取消息，dry run 不会吃掉消息），再 `hooks.enable`。
 
 6. **被唤醒后怎么做**（把这段写进 hook 唤醒你时要执行的指令）：
 
@@ -161,7 +161,7 @@ wx-bot 跑在**你自己的运行环境**里（不是用户的 Mac），作为 s
    两种方式都会自动选对文件（含 musl）、校验 sha256、替换程序，并重启正在运行的 systemd / launchd 服务。输出里出现 `restart it` 时，按提示手动重启（例如 Muse 的系统服务需要 `sudo systemctl restart wx-bot`）。
 2. **确认**：`wx-bot version` 是新版本；等 15 秒后 `wx-bot health --grace 0` 退出码为 0。
 3. **更新回复指令**：你的 routine 或 hook 指令里如果回复写的是 `--text '<回复>'`，改成 `--text -` 加带引号的 heredoc（见本文开头），引号就不用再手动转义。
-4. **Muse 还要更新 hook**：对照 [`adapters/muse/wechat-hook.sh`](adapters/muse/wechat-hook.sh) 和 [Muse](#muse) 第 5 步，确认你的 hook 在没有新消息时会运行 `wx-bot health`、异常时唤醒你，间隔 5 秒。没有就改上，先 dry run 再启用。
+4. **Muse 还要更新 hook**：对照 [`adapters/muse/wechat-hook.sh`](adapters/muse/wechat-hook.sh) 和 [Muse](#muse) 第 5 步，确认你的 hook 在没有新消息时会运行 `wx-bot health`、异常时唤醒你，`poll_interval_secs` 为 5。没有就改上，先 dry run 再启用。
 5. **告诉用户**：从哪个版本升级到哪个版本，并请用户发一条微信确认能正常对话。
 
 出问题需要回滚：`wx-bot update --version <旧版本号>`。Docker 部署（例如 Pi Durable）不用这一节：改镜像标签后 `docker compose up -d`。
